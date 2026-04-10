@@ -7,9 +7,13 @@ const STATE = {
   searchMode: "upload",
   medicines: [],
   results: [],
+  lastScrollY: 0,
+  scrollQueued: false,
+  reduceMotion: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
 };
 
 const elements = {
+  header: document.getElementById("site-header"),
   navLinks: Array.from(document.querySelectorAll(".nav-link")),
   targetButtons: Array.from(document.querySelectorAll("[data-target]")),
   authJumpButtons: Array.from(document.querySelectorAll("[data-auth-jump]")),
@@ -44,6 +48,8 @@ const elements = {
   lngInput: document.getElementById("lng-input"),
   useLocationBtn: document.getElementById("use-location-btn"),
   quickChips: Array.from(document.querySelectorAll(".quick-chip")),
+  revealNodes: Array.from(document.querySelectorAll("[data-reveal]")),
+  parallaxNodes: Array.from(document.querySelectorAll("[data-parallax]")),
 };
 
 const sections = ["overview", "finder", "lookup", "contact"].map((id) => ({
@@ -55,9 +61,10 @@ function init() {
   bindNavigation();
   bindAuth();
   bindFinder();
+  bindMotion();
   setAuthMode(STATE.authMode);
   hydrateAuthState();
-  updateActiveNav();
+  handleWindowScroll(true);
   renderMedicines();
   renderResults();
 }
@@ -79,7 +86,8 @@ function bindNavigation() {
     });
   });
 
-  window.addEventListener("scroll", updateActiveNav, { passive: true });
+  window.addEventListener("scroll", queueWindowScroll, { passive: true });
+  window.addEventListener("resize", () => handleWindowScroll(true), { passive: true });
 }
 
 function bindAuth() {
@@ -110,7 +118,7 @@ function bindAuth() {
       name:
         mode === "register"
           ? name
-          : existing?.email === email
+          : existing && existing.email === email
             ? existing.name
             : email.split("@")[0],
       email,
@@ -139,7 +147,7 @@ function bindFinder() {
   });
 
   elements.fileInput.addEventListener("change", async (event) => {
-    const file = event.target.files?.[0];
+    const file = event.target.files ? event.target.files[0] : null;
     if (file) {
       await uploadPrescription(file);
     }
@@ -160,7 +168,7 @@ function bindFinder() {
   });
 
   elements.dropZone.addEventListener("drop", async (event) => {
-    const file = event.dataTransfer?.files?.[0];
+    const file = event.dataTransfer && event.dataTransfer.files ? event.dataTransfer.files[0] : null;
     if (file) {
       await uploadPrescription(file);
     }
@@ -175,17 +183,11 @@ function bindFinder() {
     setStatus("info", "Manual text cleared.");
   });
 
-  elements.quickChips.forEach((chip) => {
-    chip.addEventListener("click", async () => {
-      setSearchMode("manual");
-      elements.manualInput.value = chip.dataset.example || "";
-      scrollToSection("finder");
-      await parseManualMedicines();
-    });
-  });
-
   elements.selectAllBtn.addEventListener("click", () => {
-    STATE.medicines = STATE.medicines.map((medicine) => ({ ...medicine, selected: true }));
+    STATE.medicines = STATE.medicines.map((medicine) => ({
+      ...medicine,
+      selected: true,
+    }));
     renderMedicines();
   });
 
@@ -218,6 +220,86 @@ function bindFinder() {
 
     STATE.medicines[index].selected = !STATE.medicines[index].selected;
     renderMedicines();
+  });
+}
+
+function bindMotion() {
+  if (STATE.reduceMotion) {
+    elements.revealNodes.forEach((node) => {
+      node.classList.add("is-visible");
+    });
+    return;
+  }
+
+  elements.revealNodes.forEach((node) => {
+    const delay = Number(node.dataset.delay || 0);
+    node.style.transitionDelay = `${delay}ms`;
+  });
+
+  const observer = new IntersectionObserver(
+    (entries) => {
+      entries.forEach((entry) => {
+        if (!entry.isIntersecting) {
+          return;
+        }
+
+        entry.target.classList.add("is-visible");
+        observer.unobserve(entry.target);
+      });
+    },
+    {
+      threshold: 0.16,
+      rootMargin: "0px 0px -10% 0px",
+    }
+  );
+
+  elements.revealNodes.forEach((node) => {
+    observer.observe(node);
+  });
+}
+
+function queueWindowScroll() {
+  if (STATE.scrollQueued) {
+    return;
+  }
+
+  STATE.scrollQueued = true;
+  window.requestAnimationFrame(() => {
+    handleWindowScroll();
+    STATE.scrollQueued = false;
+  });
+}
+
+function handleWindowScroll(forceVisible) {
+  updateHeaderMotion(Boolean(forceVisible));
+  updateActiveNav();
+  applyParallax();
+}
+
+function updateHeaderMotion(forceVisible) {
+  const currentY = window.scrollY || 0;
+  const scrollingDown = currentY > STATE.lastScrollY + 4;
+  const shouldHide = !forceVisible && currentY > 150 && scrollingDown;
+
+  elements.header.classList.toggle("is-scrolled", currentY > 18);
+  elements.header.classList.toggle("is-hidden", shouldHide && currentY > 36);
+
+  if (currentY < 30) {
+    elements.header.classList.remove("is-hidden");
+  }
+
+  STATE.lastScrollY = currentY;
+}
+
+function applyParallax() {
+  if (STATE.reduceMotion) {
+    return;
+  }
+
+  const currentY = window.scrollY || 0;
+  elements.parallaxNodes.forEach((node) => {
+    const rate = Number(node.dataset.parallax || 0);
+    node.style.transform = `translate3d(0, ${Math.round(currentY * rate)}px, 0)`;
   });
 }
 
@@ -373,7 +455,7 @@ function renderMedicines() {
       const selectedClass = medicine.selected ? "selected" : "";
       return `
         <button type="button" class="medicine-item ${selectedClass}" data-medicine-index="${index}">
-          <span class="medicine-toggle">${medicine.selected ? "✓" : ""}</span>
+          <span class="medicine-toggle">${medicine.selected ? "&#10003;" : ""}</span>
           <span>
             <strong>${escapeHtml(medicine.name)}</strong>
             <span class="medicine-meta">${escapeHtml(medicine.dose)} | ${escapeHtml(medicine.frequency)}</span>
@@ -393,7 +475,10 @@ function updateFindButton() {
 }
 
 async function runPharmacyFinder() {
-  const selectedMedicines = STATE.medicines.filter((medicine) => medicine.selected).map((medicine) => medicine.name);
+  const selectedMedicines = STATE.medicines
+    .filter((medicine) => medicine.selected)
+    .map((medicine) => medicine.name);
+
   if (!selectedMedicines.length) {
     setStatus("error", "Select at least one medicine before searching.");
     return;
@@ -430,7 +515,10 @@ async function runPharmacyFinder() {
       return;
     }
 
-    setStatus("success", `Ranked ${STATE.results.length} pharmacies for ${selectedMedicines.length} selected medicine${selectedMedicines.length > 1 ? "s" : ""}.`);
+    setStatus(
+      "success",
+      `Ranked ${STATE.results.length} pharmacies for ${selectedMedicines.length} selected medicine${selectedMedicines.length > 1 ? "s" : ""}.`
+    );
   } catch (error) {
     setStatus("error", error.message);
   }
@@ -444,14 +532,20 @@ function renderResults() {
 
   elements.resultsList.innerHTML = STATE.results
     .map((pharmacy, index) => {
+      const reliability = pharmacy.factor_scores && pharmacy.factor_scores.reliability
+        ? `${pharmacy.factor_scores.reliability}%`
+        : "N/A";
+      const hours = pharmacy.factor_scores && pharmacy.factor_scores.hours
+        ? pharmacy.factor_scores.hours
+        : "Hours unavailable";
       const medicineMatches = (pharmacy.medicines || [])
-        .map(
-          (medicine) => `
+        .map((medicine) => {
+          return `
             <span class="stock-chip ${escapeHtml(medicine.stock_label)}">
               ${escapeHtml(medicine.medicine)}: ${escapeHtml(medicine.stock_label)}
             </span>
-          `
-        )
+          `;
+        })
         .join("");
 
       return `
@@ -470,8 +564,8 @@ function renderResults() {
           <div class="result-metrics">
             <span class="metric-chip">${escapeHtml(String(pharmacy.distance_km))} km away</span>
             <span class="metric-chip">${escapeHtml(String(pharmacy.coverage_pct))}% medicine coverage</span>
-            <span class="metric-chip">Reliability ${escapeHtml(String(pharmacy.factor_scores?.reliability ?? "-"))}%</span>
-            <span class="metric-chip">${escapeHtml(String(pharmacy.factor_scores?.hours ?? "Hours unavailable"))}</span>
+            <span class="metric-chip">Reliability ${escapeHtml(reliability)}</span>
+            <span class="metric-chip">${escapeHtml(hours)}</span>
           </div>
           <div class="result-match-list">${medicineMatches}</div>
         </article>
@@ -516,12 +610,19 @@ function scrollToSection(id) {
     return;
   }
 
-  element.scrollIntoView({ behavior: "smooth", block: "start" });
+  const headerOffset = (elements.header ? elements.header.offsetHeight : 0) + 28;
+  const targetTop = element.getBoundingClientRect().top + window.scrollY - headerOffset;
+  window.scrollTo({
+    top: Math.max(targetTop, 0),
+    behavior: STATE.reduceMotion ? "auto" : "smooth",
+  });
+
   setActiveNavLink(id);
 }
 
 function updateActiveNav() {
-  const marker = window.scrollY + window.innerHeight * 0.25;
+  const headerOffset = elements.header ? elements.header.offsetHeight : 0;
+  const marker = window.scrollY + headerOffset + 80;
   let activeId = "overview";
 
   sections.forEach((section) => {
@@ -546,11 +647,11 @@ function setActiveNavLink(activeId) {
 
 function escapeHtml(value) {
   return String(value)
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&#39;");
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }
 
 init();
