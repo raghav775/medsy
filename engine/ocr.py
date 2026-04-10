@@ -6,6 +6,7 @@ All libraries are 100% free/open-source.
 
 import os
 import re
+import difflib
 
 MEDICINE_DB = {
     # Antibiotics
@@ -101,6 +102,9 @@ MEDICINE_DB = {
     "medrol":"Methylprednisolone (Medrol)",
 }
 
+# Flat list of all known medicine keywords for fuzzy matching
+_ALL_MED_KEYS = sorted(MEDICINE_DB.keys(), key=len, reverse=True)
+
 DOSAGE_RE = re.compile(
     r'(\d+\.?\d*)\s*(mg|mcg|µg|iu|ml|g\b|gm|gram|tablet|tab|cap|capsule|sachet|drops?|puff|unit)',
     re.I
@@ -139,7 +143,70 @@ def _configure_tesseract():
                 break
 
 
-def _ocr_image(filepath):
+def _preprocess_variants(filepath):
+    """
+    Generate multiple preprocessed versions of the image to maximise
+    OCR accuracy on messy handwriting.  Returns a list of PIL Image objects.
+    """
+    try:
+        from PIL import Image, ImageFilter, ImageEnhance, ImageOps
+    except ImportError:
+        return []
+
+    base = Image.open(filepath).convert('L')
+    variants = []
+
+    # 1. High-contrast + sharpen (good for faded ink)
+    v1 = ImageEnhance.Contrast(base).enhance(2.5)
+    v1 = v1.filter(ImageFilter.SHARPEN)
+    variants.append(v1)
+
+    # 2. Otsu-style binarisation via auto-contrast → threshold
+    v2 = ImageOps.autocontrast(base, cutoff=5)
+    v2 = v2.point(lambda p: 255 if p > 140 else 0)
+    variants.append(v2)
+
+    # 3. Aggressive threshold (catches very light handwriting)
+    v3 = ImageEnhance.Contrast(base).enhance(3.5)
+    v3 = v3.point(lambda p: 255 if p > 100 else 0)
+    v3 = v3.filter(ImageFilter.MedianFilter(3))
+    variants.append(v3)
+
+    # 4. Inverted (white-on-black Rx pads)
+    v4 = ImageOps.invert(ImageOps.autocontrast(base))
+    v4 = v4.point(lambda p: 255 if p > 128 else 0)
+    variants.append(v4)
+
+    # 5. Scaled-up 2× (helps with small handwriting)
+    w, h = base.size
+    v5 = base.resize((w * 2, h * 2), Image.LANCZOS)
+    v5 = ImageEnhance.Contrast(v5).enhance(2.0)
+    v5 = v5.filter(ImageFilter.SHARPEN)
+    variants.append(v5)
+
+    return variants
+
+
+def _ocr_image_easyocr(filepath) -> str | None:
+    """
+    Use EasyOCR (free, local) to extract text — handles handwriting and
+    mixed fonts much better than Tesseract.
+    Returns extracted text or None if EasyOCR is not installed.
+    """
+    try:
+        import easyocr
+    except ImportError:
+        return None
+    try:
+        reader = easyocr.Reader(["en"], gpu=False, verbose=False)
+        # Run on original file
+        results = reader.readtext(filepath, detail=0, paragraph=True)
+        return "\n".join(results)
+    except Exception:
+        return None
+
+
+def _ocr_image_tesseract(filepath) -> str:
     try:
         import pytesseract
         from PIL import Image, ImageFilter, ImageEnhance
@@ -151,23 +218,61 @@ def _ocr_image(filepath):
 
     _configure_tesseract()
 
+    # Multiple PSM modes catch different handwriting layouts
+    psm_modes = [6, 4, 3, 11]
+    all_texts = []
+
+    variants = _preprocess_variants(filepath)
+    if not variants:
+        # Fallback: just open normally
+        variants = [Image.open(filepath).convert('L')]
+
+    for img in variants:
+        for psm in psm_modes:
+            try:
+                text = pytesseract.image_to_string(img, config=f'--psm {psm} --oem 3')
+                if text and text.strip():
+                    all_texts.append(text)
+            except Exception:
+                continue
+
+    if not all_texts:
+        # Last resort: raw default
+        try:
+            img = Image.open(filepath).convert('L')
+            return pytesseract.image_to_string(img)
+        except Exception as exc:
+            msg = str(exc).lower()
+            if "tesseract" in msg and ("not found" in msg or "not installed" in msg or "cannot find" in msg):
+                raise RuntimeError(
+                    "Tesseract OCR is not installed or not found on this machine.\n"
+                    "Windows: download the installer from "
+                    "https://github.com/UB-Mannheim/tesseract/wiki and install it, "
+                    "then restart the server.\n"
+                    "Linux: sudo apt install tesseract-ocr\n"
+                    "macOS: brew install tesseract"
+                )
+            raise RuntimeError(f"Image OCR failed: {exc}")
+
+    # Merge all texts (union of all lines for maximum medicine coverage)
+    return "\n".join(all_texts)
+
+
+def _ocr_image(filepath) -> str:
+    """Try EasyOCR first (handles handwriting), fall back to multi-pass Tesseract.
+    Merge results from both for maximum coverage."""
+    texts = []
+    easy_text = _ocr_image_easyocr(filepath)
+    if easy_text and easy_text.strip():
+        texts.append(easy_text)
     try:
-        img = Image.open(filepath).convert('L')
-        img = ImageEnhance.Contrast(img).enhance(2.0)
-        img = img.filter(ImageFilter.SHARPEN)
-        return pytesseract.image_to_string(img, config='--psm 6 --oem 3')
-    except Exception as exc:
-        msg = str(exc).lower()
-        if "tesseract" in msg and ("not found" in msg or "not installed" in msg or "cannot find" in msg):
-            raise RuntimeError(
-                "Tesseract OCR is not installed or not found on this machine.\n"
-                "Windows: download the installer from "
-                "https://github.com/UB-Mannheim/tesseract/wiki and install it, "
-                "then restart the server.\n"
-                "Linux: sudo apt install tesseract-ocr\n"
-                "macOS: brew install tesseract"
-            )
-        raise RuntimeError(f"Image OCR failed: {exc}")
+        tess_text = _ocr_image_tesseract(filepath)
+        if tess_text and tess_text.strip():
+            texts.append(tess_text)
+    except RuntimeError:
+        if not texts:
+            raise  # Only re-raise if we have nothing at all
+    return "\n".join(texts) if texts else ""
 
 
 def _extract_pdf(filepath):
@@ -272,27 +377,123 @@ def parse_medicines_from_text(text):
     return list(found.values())
 
 
-def extract_lines_from_text(text):
-    """Return all non-trivial lines from OCR output for the user to pick from."""
-    seen = set()
-    lines = []
-    for raw in text.split('\n'):
-        line = raw.strip()
-        # skip blank, too short, or purely numeric/punctuation lines
-        if len(line) < 3:
+# Common handwriting OCR misreads: map garbled chars → likely correct ones
+_HANDWRITING_SUBS = {
+    '0': 'o', '1': 'l', '3': 'e', '5': 's', '8': 'b',
+    '|': 'l', '!': 'l', '@': 'a', '$': 's', '(': 'c',
+    ')': 'j', '{': 'c', '}': 'j', '[': 'l', ']': 'l',
+}
+
+
+def _clean_ocr_token(token: str) -> str:
+    """Apply handwriting-specific character corrections."""
+    cleaned = token.lower().strip()
+    # Remove stray punctuation that handwriting OCR injects
+    cleaned = re.sub(r"[^a-z0-9 ]", "", cleaned)
+    # Apply character substitution corrections
+    result = ""
+    for ch in cleaned:
+        result += _HANDWRITING_SUBS.get(ch, ch)
+    return result.strip()
+
+
+def find_medicines_in_ocr(text: str) -> list:
+    """
+    Aggressively fuzzy-match words from OCR text against the medicine database.
+    Designed to handle doctor handwriting where characters are frequently
+    misread by OCR engines.
+    Returns a list of dicts: [{name, dose, frequency, raw_line, confidence}, ...]
+    """
+    # First try the existing exact-match parser
+    exact = parse_medicines_from_text(text)
+    found = {m["name"]: m for m in exact}
+
+    # Extract candidate tokens: words (min 3 chars for handwriting fragments)
+    words = re.findall(r'[a-zA-Z]{3,}', text.lower())
+    # Also try bigrams and trigrams for multi-word medicines
+    bigrams = [words[i] + " " + words[i+1] for i in range(len(words)-1)]
+    trigrams = [words[i] + " " + words[i+1] + " " + words[i+2] for i in range(len(words)-2)]
+    candidates = words + bigrams + trigrams
+
+    # Also create cleaned versions of each candidate
+    cleaned_candidates = []
+    for token in candidates:
+        cleaned = _clean_ocr_token(token)
+        if cleaned and cleaned != token:
+            cleaned_candidates.append((cleaned, token))  # (cleaned, original)
+
+    # --- Pass 1: Standard fuzzy match (relaxed cutoff for handwriting) ---
+    for token in candidates:
+        if any(token in k.lower() or k.lower() in token for k in found):
             continue
-        if re.match(r'^[\d\s\.\-\:\,\/\(\)]+$', line):
+        matches = difflib.get_close_matches(token, _ALL_MED_KEYS, n=1, cutoff=0.62)
+        if not matches:
             continue
-        key = line.lower()
-        if key in seen:
+        keyword = matches[0]
+        canonical = MEDICINE_DB[keyword]
+        if canonical in found:
             continue
-        seen.add(key)
-        lines.append(line)
-    return lines
+        raw_line = next((l.strip() for l in text.split('\n') if keyword in l.lower() or token in l.lower()), token)
+        dm = DOSAGE_RE.search(raw_line)
+        fm = FREQUENCY_RE.search(raw_line)
+        found[canonical] = {
+            "name": canonical,
+            "dose": f"{dm.group(1)} {dm.group(2)}" if dm else "See prescription",
+            "frequency": fm.group(0).strip() if fm else "As directed",
+            "raw_line": raw_line,
+            "confidence": 0.75,
+        }
+
+    # --- Pass 2: Cleaned (character-corrected) fuzzy match ---
+    for cleaned, original in cleaned_candidates:
+        if any(cleaned in k.lower() or k.lower() in cleaned for k in found):
+            continue
+        matches = difflib.get_close_matches(cleaned, _ALL_MED_KEYS, n=1, cutoff=0.62)
+        if not matches:
+            continue
+        keyword = matches[0]
+        canonical = MEDICINE_DB[keyword]
+        if canonical in found:
+            continue
+        raw_line = next((l.strip() for l in text.split('\n') if original in l.lower()), original)
+        dm = DOSAGE_RE.search(raw_line)
+        fm = FREQUENCY_RE.search(raw_line)
+        found[canonical] = {
+            "name": canonical,
+            "dose": f"{dm.group(1)} {dm.group(2)}" if dm else "See prescription",
+            "frequency": fm.group(0).strip() if fm else "As directed",
+            "raw_line": raw_line,
+            "confidence": 0.65,
+        }
+
+    # --- Pass 3: Substring containment (catches partial reads like "metacet" → "paracetamol") ---
+    text_lower = text.lower()
+    for keyword, canonical in MEDICINE_DB.items():
+        if canonical in found:
+            continue
+        # Check if the medicine keyword is embedded inside any OCR word
+        if len(keyword) >= 5:
+            for word in words:
+                if len(word) >= 5 and (keyword[:5] in word or word[:5] in keyword):
+                    # Verify with a loose ratio check
+                    ratio = difflib.SequenceMatcher(None, word, keyword).ratio()
+                    if ratio >= 0.55:
+                        raw_line = next((l.strip() for l in text.split('\n') if word in l.lower()), word)
+                        dm = DOSAGE_RE.search(raw_line)
+                        fm = FREQUENCY_RE.search(raw_line)
+                        found[canonical] = {
+                            "name": canonical,
+                            "dose": f"{dm.group(1)} {dm.group(2)}" if dm else "See prescription",
+                            "frequency": fm.group(0).strip() if fm else "As directed",
+                            "raw_line": raw_line,
+                            "confidence": 0.60,
+                        }
+                        break
+
+    return list(found.values())
 
 
 def extract_medicines_from_file(filepath):
     raw_text = extract_text_from_file(filepath)
-    medicines = parse_medicines_from_text(raw_text)
-    lines = extract_lines_from_text(raw_text)
-    return medicines, lines, raw_text
+    medicines = find_medicines_in_ocr(raw_text)
+    return medicines, raw_text

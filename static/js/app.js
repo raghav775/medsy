@@ -336,22 +336,30 @@ async function uploadPrescription(file, uploadHelper, statusBanner, medicineList
     const data = await res.json();
     if (!res.ok || data.error) throw new Error(data.error || "Upload failed.");
 
-    const lines = data.lines || [];
-    if (!lines.length) {
-      setStatus(statusBanner, "error",
-        "No text could be read from this image. Try a clearer photo or use 'Type Medicines' instead.");
+    const medicines = normaliseMedicines(data.medicines || [], "OCR");
+
+    if (!medicines.length) {
+      // No medicines detected — offer the raw text in manual mode
+      const rawText = (data.raw_text || "").trim();
+      const modeButtons = Array.from(document.querySelectorAll(".mode-btn"));
+      const uploadPanel = document.getElementById("upload-panel");
+      const manualPanel = document.getElementById("manual-panel");
+      const manualInput = document.getElementById("manual-input");
+      if (rawText && manualInput) {
+        manualInput.value = rawText;
+        setSearchMode("manual", modeButtons, uploadPanel, manualPanel);
+        setStatus(statusBanner, "info",
+          "No medicine names were recognised automatically. The extracted text has been placed in the manual tab — review and press 'Search typed list'.");
+      } else {
+        setStatus(statusBanner, "error",
+          "No medicines could be detected. Try a clearer image or use 'Type Medicines'.");
+      }
       return;
     }
 
-    // Pre-tick any line that matches a known medicine keyword
-    const knownKeys = Object.keys(MEDICINE_KEYWORDS);
-    const preChecked = new Set(
-      lines.filter(l => knownKeys.some(k => l.toLowerCase().includes(k)))
-    );
-
-    renderOcrPicker(lines, preChecked, medicineList, findBtn, statusBanner, resultsList);
+    renderOcrPicker(medicines, medicineList, findBtn, statusBanner, resultsList);
     setStatus(statusBanner, "info",
-      `OCR found ${lines.length} line${lines.length > 1 ? "s" : ""} — tick the medicines you want, then press "Add selected".`);
+      `Found ${medicines.length} medicine${medicines.length > 1 ? "s" : ""} — confirm your selection then press "Add selected".`);
   } catch (err) { setStatus(statusBanner, "error", err.message); }
 }
 
@@ -369,15 +377,17 @@ const MEDICINE_KEYWORDS = {
   dolo:1,crocin:1,brufen:1,augmentin:1,cipro:1,flagyl:1,zithromax:1,
 };
 
-function renderOcrPicker(lines, preChecked, medicineList, findBtn, statusBanner, resultsList) {
+function renderOcrPicker(medicines, medicineList, findBtn, statusBanner, resultsList) {
   if (!medicineList) return;
 
-  const rows = lines.map((line) => {
-    const checked = preChecked.has(line) ? "checked" : "";
+  const rows = medicines.map((med) => {
     return `
-      <label class="ocr-pick-row ${checked ? "ocr-pick-selected" : ""}">
-        <input type="checkbox" class="ocr-pick-cb" data-line="${escapeHtml(line)}" ${checked}>
-        <span class="ocr-pick-text">${escapeHtml(line)}</span>
+      <label class="ocr-pick-row ocr-pick-selected">
+        <input type="checkbox" class="ocr-pick-cb" data-line="${escapeHtml(med.name)}" checked>
+        <span class="ocr-pick-text">
+          <strong>${escapeHtml(med.name)}</strong>
+          <span style="color:var(--text-soft);font-size:0.82rem;margin-left:8px;">${escapeHtml(med.dose)} · ${escapeHtml(med.frequency)}</span>
+        </span>
       </label>`;
   }).join("");
 
@@ -423,9 +433,13 @@ function renderOcrPicker(lines, preChecked, medicineList, findBtn, statusBanner,
       return;
     }
 
+    const medMap = Object.fromEntries(medicines.map(m => [m.name, m]));
     const newMeds = chosen.map(name => ({
-      name, dose: "See prescription", frequency: "As directed",
-      source: "OCR", selected: true,
+      name,
+      dose: medMap[name]?.dose || "See prescription",
+      frequency: medMap[name]?.frequency || "As directed",
+      source: "OCR",
+      selected: true,
     }));
 
     STATE.medicines = [...STATE.medicines.filter(m => m.source !== "OCR"), ...newMeds];

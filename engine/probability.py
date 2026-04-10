@@ -752,8 +752,9 @@ def rank_pharmacies(
     medicines: list,
     user_lat: float,
     user_lng: float,
-    max_results: int = 6,
+    max_results: int = 10,
     max_km: float = None,
+    pharmacy_list: list = None,
 ) -> list:
     """
     Rank pharmacies by fulfillment probability for the given medicine list.
@@ -772,7 +773,8 @@ def rank_pharmacies(
     results = []
     commonality = _prescription_commonality(medicines)
 
-    for pharmacy in PHARMACIES:
+    _pharmacies = pharmacy_list if pharmacy_list else PHARMACIES
+    for pharmacy in _pharmacies:
         km = _haversine(user_lat, user_lng, pharmacy["lat"], pharmacy["lng"])
         if max_km and km > max_km:
             continue

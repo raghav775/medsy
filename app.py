@@ -8,6 +8,7 @@ import requests
 
 from engine.ocr import extract_medicines_from_file, parse_medicines_from_text
 from engine.probability import rank_pharmacies
+from engine.overpass import fetch_pharmacies
 
 
 app = Flask(__name__)
@@ -248,8 +249,8 @@ def ocr_pharmacy_finder():
     file.save(filepath)
 
     try:
-        medicines, lines, raw_text = extract_medicines_from_file(filepath)
-        return jsonify({"medicines": medicines, "lines": lines, "raw_text": raw_text, "filename": file.filename})
+        medicines, raw_text = extract_medicines_from_file(filepath)
+        return jsonify({"medicines": medicines, "raw_text": raw_text, "filename": file.filename})
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
     finally:
@@ -272,7 +273,8 @@ def rank():
     user_lat = manual_lat if manual_lat is not None else location["lat"]
     user_lng = manual_lng if manual_lng is not None else location["lng"]
 
-    results = rank_pharmacies(selected, user_lat, user_lng)
+    real_pharmacies = fetch_pharmacies(user_lat, user_lng)
+    results = rank_pharmacies(selected, user_lat, user_lng, pharmacy_list=real_pharmacies)
     return jsonify(
         {
             "pharmacies": results,
