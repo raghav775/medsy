@@ -1,123 +1,83 @@
-# Medsy — Smart Pharmacy Navigator
-> 100% free stack · No paid APIs · Runs fully locally
+# Medsy
 
----
+Medsy is a Flask app for quickly ranking nearby pharmacies based on a medicine list.
 
-## Tech stack (all free)
-| Layer | Tool |
-|---|---|
-| Maps & routing | OpenStreetMap + Leaflet.js + OSRM |
-| Prescription OCR | Tesseract (pytesseract) + pdfplumber |
-| Probability engine | Custom Python (engine/probability.py) |
-| Storage | localStorage (browser) |
-| Backend | Python Flask |
+This version now includes:
 
----
+- An overview landing page inspired by your reference layout
+- Login and register UI on the same page
+- A public `Pharmacy Finder` that works before login
+- Two finder inputs: upload a prescription or type medicines manually
+- Ranked pharmacy results based on the local probability engine
 
-## Setup
+## Run locally
 
-### 1. Install system dependencies
+### 1. Create and activate a virtual environment
 
-**Ubuntu / Debian / WSL:**
-```bash
-sudo apt update
-sudo apt install tesseract-ocr poppler-utils antiword -y
-```
-
-**macOS (Homebrew):**
-```bash
-brew install tesseract poppler
-```
-
-**Windows:**
-- Tesseract: https://github.com/UB-Mannheim/tesseract/wiki
-- Poppler: https://github.com/oschwartz10612/poppler-windows/releases
-- Add both to your system PATH.
-
----
-
-### 2. Create Python virtual environment
-```bash
-cd medsy
+```powershell
+cd c:\Users\Raghav Gulati\OneDrive\Desktop\medsy
 python -m venv venv
-
-# Linux / macOS
-source venv/bin/activate
-
-# Windows
-venv\Scripts\activate
+.\venv\Scripts\activate
 ```
 
-### 3. Install Python packages
-```bash
+### 2. Install Python packages
+
+```powershell
 pip install -r requirements.txt
 ```
 
-### 4. Run the app
-```bash
+### 3. Install OCR dependencies if you want upload scanning
+
+Windows:
+
+- Install Tesseract: https://github.com/UB-Mannheim/tesseract/wiki
+- Install Poppler: https://github.com/oschwartz10612/poppler-windows/releases
+- Add both to your system `PATH`
+
+If you only want to test the manual text entry flow first, you can still run the app without using OCR uploads.
+
+### 4. Start the app
+
+```powershell
 python app.py
 ```
 
-Open your browser at **http://127.0.0.1:5000**
+Then open:
 
----
+```text
+http://127.0.0.1:5000
+```
 
-## Features
+## Current flow
 
-### Dashboard
-Health snapshot — records stored, prescriptions scanned, top pharmacies.
+### Overview
 
-### Medical vault
-Private local storage for all health records (MRI scans, lab reports, prescriptions).  
-Files stored in your browser's localStorage — nothing leaves your device.
+- The landing page shows the overview, login/register UI, FAQ, and contact copy.
+- Header buttons jump to `Overview`, `Pharmacy Finder`, `Medication Lookup`, and `Contact`.
 
-### Prescription finder
-1. Upload a prescription (PDF, JPG, PNG, DOCX, DOC, or TXT)
-2. Medsy uses Tesseract OCR + pdfplumber to extract medicine names
-3. Tick the medicines you want
-4. Hit **Run probability engine**
-5. Pharmacies are ranked 0–100% by a weighted model covering:
-   - Medicine coverage (40%)
-   - Stock levels (20%)
-   - Distance (20%)
-   - Pharmacy reliability (12%)
-   - 24h hours bonus (5%)
-   - Specialty match (3%)
-6. Click **Navigate →** on any pharmacy
+### Pharmacy Finder
 
-### Navigate
-- Real OpenStreetMap tiles (free, no API key)
-- OSRM turn-by-turn routing (free, no API key)
-- Clicking Navigate on a pharmacy auto-jumps here
-- Full turn-by-turn step list + distance + ETA
-- Falls back to straight-line if OSRM is offline
+- Public access without login
+- Upload a prescription file to extract medicines with OCR
+- Or type medicine names manually into the text box
+- Select medicines and rank nearby pharmacies
 
----
+### Login / Register
 
-## Extending the pharmacy database
+- Included on the overview page
+- Stored locally in browser storage for now
+- Ready to replace with real authentication later
 
-Edit `engine/probability.py` → the `PHARMACIES` list.  
-Add as many pharmacies as you want, each with:
-- Real lat/lng coordinates
-- `inventory` dict with medicine names (lowercase) → stock level (0.0–1.0)
-- `specialties` list for the specialty match bonus
-- `reliability` score (0.0–1.0)
+## Main files changed
 
----
+- `app.py`
+- `templates/index.html`
+- `static/css/style.css`
+- `static/js/app.js`
+- `engine/probability.py`
 
-## Adding more medicines to OCR
+## Notes
 
-Edit `engine/ocr.py` → the `MEDICINE_DB` dict.  
-Format: `"keyword_in_lowercase": "Canonical Display Name"`
-
----
-
-## Troubleshooting
-
-| Problem | Fix |
-|---|---|
-| `tesseract not found` | Install Tesseract binary (see step 1) |
-| `poppler not found` | Install poppler-utils (for scanned PDFs) |
-| `.doc` files not working | Install antiword: `sudo apt install antiword` |
-| OSRM routing not working | Check internet connection; falls back to straight-line |
-| Port 5000 in use | Run: `python app.py` and change port in app.py |
+- `Pharmacy Finder` replaces the previous `Prescription Finder` wording in the UI.
+- OCR upload depends on your local Tesseract and Poppler installation.
+- Pharmacy data is still local and sample-based inside `engine/probability.py`.

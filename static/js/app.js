@@ -1,457 +1,556 @@
-/* ── Medsy frontend ──────────────────────────────────────────────────────────
-   Handles:
-   - Navigation between pages
-   - Medical vault (localStorage)
-   - Prescription OCR upload → Flask /api/ocr
-   - Probability engine → Flask /api/rank
-   - Auto-jump to Navigate page with Leaflet + OSRM routing
-────────────────────────────────────────────────────────────────────────────── */
-
 "use strict";
 
-// ── State ──────────────────────────────────────────────────────────────────────
+const AUTH_STORAGE_KEY = "medsy_user_session";
+
 const STATE = {
-  medicines: [],          // [{name, dose, frequency, selected}]
-  pharmacies: [],         // ranked results from /api/rank
-  selectedPharmIdx: null, // index into pharmacies
-  userLat: 28.5733,
-  userLng: 77.2236,
-  map: null,
-  routeControl: null,
-  pharmMarkers: [],
-  userMarker: null,
+  authMode: "login",
+  searchMode: "upload",
+  medicines: [],
+  results: [],
 };
 
-// ── Vault seed data ─────────────────────────────────────────────────────────
-const VAULT_SEED = [
-  { id: 1, type: "scan",         badge: "b-scan",   label: "MRI scan",     name: "Brain MRI — Oct 2024",          meta: "Apollo Hospital · 12 Oct 2024 · 18 MB" },
-  { id: 2, type: "report",       badge: "b-report",  label: "Lab report",   name: "CBC Blood Panel",               meta: "Dr. Lal PathLabs · 8 Oct 2024 · 2.1 MB" },
-  { id: 3, type: "prescription", badge: "b-rx",      label: "Prescription", name: "Prescription #6 — Neurology",   meta: "Dr. S. Arora · 5 Oct 2024 · 0.4 MB" },
-  { id: 4, type: "scan",         badge: "b-scan",   label: "X-ray",        name: "Chest X-Ray — Aug 2024",        meta: "Max Hospital · 2 Aug 2024 · 5.6 MB" },
-  { id: 5, type: "report",       badge: "b-report",  label: "Lab report",   name: "Thyroid panel T3/T4",           meta: "SRL Diagnostics · 1 Aug 2024 · 1.8 MB" },
-  { id: 6, type: "prescription", badge: "b-rx",      label: "Prescription", name: "Prescription #5 — Cardiology",  meta: "Dr. P. Nair · 20 Jul 2024 · 0.3 MB" },
-  { id: 7, type: "scan",         badge: "b-scan",   label: "ECG",          name: "ECG Report — Jul 2024",         meta: "Fortis Escorts · 18 Jul 2024 · 0.6 MB" },
-  { id: 8, type: "report",       badge: "b-report",  label: "Lab report",   name: "Lipid profile & HbA1c",         meta: "Dr. Lal PathLabs · 10 Jun 2024 · 1.4 MB" },
-  { id: 9, type: "prescription", badge: "b-rx",      label: "Prescription", name: "Prescription #4 — Ortho",       meta: "Dr. K. Sharma · 1 Jun 2024 · 0.3 MB" },
-];
+const elements = {
+  navLinks: Array.from(document.querySelectorAll(".nav-link")),
+  targetButtons: Array.from(document.querySelectorAll("[data-target]")),
+  authJumpButtons: Array.from(document.querySelectorAll("[data-auth-jump]")),
+  authTabs: Array.from(document.querySelectorAll(".auth-toggle-btn")),
+  authForm: document.getElementById("auth-form"),
+  authNameField: document.querySelector(".auth-name-field"),
+  authName: document.getElementById("auth-name"),
+  authEmail: document.getElementById("auth-email"),
+  authPassword: document.getElementById("auth-password"),
+  authSubmitBtn: document.getElementById("auth-submit-btn"),
+  authFeedback: document.getElementById("auth-feedback"),
+  authStateCopy: document.getElementById("auth-state-copy"),
+  authPill: document.getElementById("auth-pill"),
+  logoutBtn: document.getElementById("logout-btn"),
+  lookupStatusCopy: document.getElementById("lookup-status-copy"),
+  modeButtons: Array.from(document.querySelectorAll(".mode-btn")),
+  uploadPanel: document.getElementById("upload-panel"),
+  manualPanel: document.getElementById("manual-panel"),
+  uploadHelper: document.getElementById("upload-helper"),
+  fileInput: document.getElementById("rx-file"),
+  dropZone: document.getElementById("rx-drop-zone"),
+  manualInput: document.getElementById("manual-input"),
+  useManualBtn: document.getElementById("use-manual-btn"),
+  clearManualBtn: document.getElementById("clear-manual-btn"),
+  statusBanner: document.getElementById("status-banner"),
+  medicineList: document.getElementById("medicine-list"),
+  selectAllBtn: document.getElementById("select-all-btn"),
+  clearSelectionBtn: document.getElementById("clear-selection-btn"),
+  findBtn: document.getElementById("find-btn"),
+  resultsList: document.getElementById("results-list"),
+  latInput: document.getElementById("lat-input"),
+  lngInput: document.getElementById("lng-input"),
+  useLocationBtn: document.getElementById("use-location-btn"),
+  quickChips: Array.from(document.querySelectorAll(".quick-chip")),
+};
 
-function loadVault() {
-  const stored = localStorage.getItem('medsy_vault');
-  return stored ? JSON.parse(stored) : [...VAULT_SEED];
-}
-function saveVault(records) {
-  localStorage.setItem('medsy_vault', JSON.stringify(records));
-}
+const sections = ["overview", "finder", "lookup", "contact"].map((id) => ({
+  id,
+  element: document.getElementById(id),
+}));
 
-// ── Navigation ──────────────────────────────────────────────────────────────
-document.querySelectorAll('.nav-item').forEach(item => {
-  item.addEventListener('click', () => goTo(item.dataset.page));
-});
-
-function goTo(pageId) {
-  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
-  document.querySelectorAll('.nav-item').forEach(n => n.classList.remove('active'));
-  document.getElementById('page-' + pageId).classList.add('active');
-  const navEl = document.querySelector(`.nav-item[data-page="${pageId}"]`);
-  if (navEl) navEl.classList.add('active');
-
-  if (pageId === 'navigate') initMap();
-  if (pageId === 'vault') renderVault();
-}
-
-// ── Vault ───────────────────────────────────────────────────────────────────
-let vaultFilter = 'all';
-
-document.querySelectorAll('.vtab').forEach(tab => {
-  tab.addEventListener('click', () => {
-    document.querySelectorAll('.vtab').forEach(t => t.classList.remove('active'));
-    tab.classList.add('active');
-    vaultFilter = tab.dataset.vtype;
-    renderVault();
-  });
-});
-
-function renderVault() {
-  const records = loadVault();
-  const filtered = vaultFilter === 'all' ? records : records.filter(r => r.type === vaultFilter);
-  const grid = document.getElementById('records-grid');
-  if (!filtered.length) {
-    grid.innerHTML = '<div class="empty-state">No records found.</div>';
-    return;
-  }
-  grid.innerHTML = filtered.map(r => `
-    <div class="rec-card">
-      <span class="badge ${r.badge}">${r.label}</span>
-      <div class="rec-name">${r.name}</div>
-      <div class="rec-meta">${r.meta}</div>
-    </div>
-  `).join('');
+function init() {
+  bindNavigation();
+  bindAuth();
+  bindFinder();
+  setAuthMode(STATE.authMode);
+  hydrateAuthState();
+  updateActiveNav();
+  renderMedicines();
+  renderResults();
 }
 
-function handleVaultUpload(event) {
-  const file = event.target.files[0];
-  if (!file) return;
-  addToVault(file);
-}
-
-function handleVaultDrop(event) {
-  event.preventDefault();
-  document.getElementById('vault-drop').classList.remove('drag-over');
-  const file = event.dataTransfer.files[0];
-  if (file) addToVault(file);
-}
-
-function addToVault(file) {
-  const ext = file.name.split('.').pop().toLowerCase();
-  const typeMap = {
-    pdf: 'report', png: 'scan', jpg: 'scan', jpeg: 'scan',
-    docx: 'prescription', doc: 'prescription', txt: 'report'
-  };
-  const badgeMap = {
-    report: 'b-report', scan: 'b-scan', prescription: 'b-rx'
-  };
-  const labelMap = {
-    report: 'Document', scan: 'Scan', prescription: 'Prescription'
-  };
-  const type = typeMap[ext] || 'report';
-  const records = loadVault();
-  records.unshift({
-    id: Date.now(),
-    type,
-    badge: badgeMap[type],
-    label: labelMap[type],
-    name: file.name,
-    meta: `Uploaded ${new Date().toLocaleDateString('en-IN')} · ${(file.size / 1024).toFixed(0)} KB`
-  });
-  saveVault(records);
-  renderVault();
-}
-
-// ── Prescription OCR ────────────────────────────────────────────────────────
-function handleRxUpload(event) {
-  const file = event.target.files[0];
-  if (file) processRxFile(file);
-}
-
-function handleRxDrop(event) {
-  event.preventDefault();
-  document.getElementById('rx-drop').classList.remove('drag-over');
-  const file = event.dataTransfer.files[0];
-  if (file) processRxFile(file);
-}
-
-async function processRxFile(file) {
-  // Show spinner state
-  setDropTitle(`📄 ${file.name} — scanning…`);
-  showOCRStatus('Extracting medicines via OCR…', 'loading');
-  document.getElementById('med-panel').style.display = 'block';
-  document.getElementById('med-list').innerHTML = '<div class="empty-state"><div class="spinner" style="margin:0 auto 8px"></div>Processing…</div>';
-  document.getElementById('run-btn').disabled = true;
-
-  const formData = new FormData();
-  formData.append('file', file);
-
-  try {
-    const resp = await fetch('/api/ocr', { method: 'POST', body: formData });
-    const data = await resp.json();
-
-    if (!resp.ok || data.error) {
-      showOCRStatus(`Error: ${data.error || 'OCR failed'}`, 'error');
-      document.getElementById('med-list').innerHTML = '';
-      return;
-    }
-
-    STATE.medicines = data.medicines || [];
-
-    if (!STATE.medicines.length) {
-      showOCRStatus('No medicines detected. Try a clearer image or type manually.', 'error');
-      document.getElementById('med-list').innerHTML = '';
-      return;
-    }
-
-    showOCRStatus(`Found ${STATE.medicines.length} medicine${STATE.medicines.length > 1 ? 's' : ''}`, 'done');
-    document.getElementById('rx-meta').textContent = file.name;
-    renderMedList();
-    document.getElementById('run-btn').disabled = false;
-    setDropTitle(`✅ ${file.name}`);
-
-  } catch (err) {
-    showOCRStatus(`Network error: ${err.message}`, 'error');
-    document.getElementById('med-list').innerHTML = '';
-  }
-}
-
-function setDropTitle(txt) {
-  document.getElementById('rx-drop-title').textContent = txt;
-}
-
-function showOCRStatus(msg, type) {
-  const el = document.getElementById('ocr-status');
-  el.style.display = 'flex';
-  el.className = 'ocr-status' + (type === 'error' ? ' error' : '');
-  el.innerHTML = type === 'loading'
-    ? `<div class="spinner"></div>${msg}`
-    : (type === 'error' ? `⚠️ ${msg}` : `✅ ${msg}`);
-}
-
-function renderMedList() {
-  const container = document.getElementById('med-list');
-  container.innerHTML = STATE.medicines.map((m, i) => `
-    <div class="med-item ${m.selected ? 'selected' : ''}" onclick="toggleMed(${i})">
-      <div class="med-checkbox"><span class="chk">✓</span></div>
-      <div class="med-info">
-        <div class="med-name">${m.name}</div>
-        <div class="med-dose">${m.dose} · ${m.frequency}</div>
-      </div>
-      <span class="stk-chip stk-high">—</span>
-    </div>
-  `).join('');
-}
-
-function toggleMed(i) {
-  STATE.medicines[i].selected = !STATE.medicines[i].selected;
-  renderMedList();
-  document.getElementById('run-btn').disabled = !STATE.medicines.some(m => m.selected);
-}
-
-function selectAllMeds(val) {
-  STATE.medicines.forEach(m => m.selected = val);
-  renderMedList();
-  document.getElementById('run-btn').disabled = !val;
-}
-
-// ── Probability Engine ──────────────────────────────────────────────────────
-async function runEngine() {
-  const selected = STATE.medicines.filter(m => m.selected).map(m => m.name);
-  if (!selected.length) return;
-
-  setEngineStatus('running', 'Running probability analysis…');
-  document.getElementById('pharm-results').innerHTML =
-    '<div class="empty-state"><div class="spinner" style="margin:0 auto 8px"></div>Analysing…</div>';
-
-  try {
-    const resp = await fetch('/api/rank', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        medicines: selected,
-        lat: STATE.userLat,
-        lng: STATE.userLng,
-      })
+function bindNavigation() {
+  elements.targetButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      const target = button.dataset.target;
+      if (target) {
+        scrollToSection(target);
+      }
     });
-    const data = await resp.json();
+  });
 
-    if (!resp.ok || data.error) {
-      setEngineStatus('error', `Error: ${data.error}`);
+  elements.authJumpButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      setAuthMode(button.dataset.authJump || "login");
+      scrollToSection("account");
+    });
+  });
+
+  window.addEventListener("scroll", updateActiveNav, { passive: true });
+}
+
+function bindAuth() {
+  elements.authTabs.forEach((tab) => {
+    tab.addEventListener("click", () => setAuthMode(tab.dataset.authMode));
+  });
+
+  elements.authForm.addEventListener("submit", (event) => {
+    event.preventDefault();
+
+    const mode = STATE.authMode;
+    const email = elements.authEmail.value.trim();
+    const password = elements.authPassword.value.trim();
+    const name = elements.authName.value.trim();
+
+    if (!email || !password) {
+      elements.authFeedback.textContent = "Enter email and password to continue.";
       return;
     }
 
-    STATE.pharmacies = data.pharmacies || [];
-    setEngineStatus('done', `${STATE.pharmacies.length} pharmacies ranked for ${selected.length} medicine${selected.length > 1 ? 's' : ''}`);
-    renderPharmResults();
+    if (mode === "register" && !name) {
+      elements.authFeedback.textContent = "Enter a full name to create the local account session.";
+      return;
+    }
 
-    // Update Navigate sidebar too
-    renderNavPharmList();
+    const existing = readStoredUser();
+    const user = {
+      name:
+        mode === "register"
+          ? name
+          : existing?.email === email
+            ? existing.name
+            : email.split("@")[0],
+      email,
+    };
 
-  } catch (err) {
-    setEngineStatus('error', `Network error: ${err.message}`);
-  }
-}
+    localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(user));
+    hydrateAuthState();
 
-function setEngineStatus(type, msg) {
-  const el = document.getElementById('engine-status');
-  el.className = 'engine-status ' + type;
-  el.innerHTML = `<div class="${type === 'running' ? 'spinner' : 'pulse-dot'}"></div>${msg}`;
-}
+    elements.authFeedback.textContent =
+      mode === "register"
+        ? `Registered locally as ${user.name}.`
+        : `Logged in locally as ${user.name}.`;
+    elements.authPassword.value = "";
+  });
 
-function renderPharmResults() {
-  const colors = ['#1D9E75', '#0F6E56', '#378ADD', '#EF9F27', '#888', '#aaa'];
-  const container = document.getElementById('pharm-results');
-
-  if (!STATE.pharmacies.length) {
-    container.innerHTML = '<div class="empty-state">No pharmacies found.</div>';
-    return;
-  }
-
-  container.innerHTML = STATE.pharmacies.map((p, i) => `
-    <div class="pr-card" onclick="navigateTo(${i})">
-      <div class="pr-rank ${i === 0 ? 'pr-rank-1' : ''}">${i + 1}</div>
-      <div class="pr-info">
-        <div class="pr-name">${p.name}</div>
-        <div class="pr-meta">${p.distance_km} km · ${p.coverage_pct}% coverage · ${p.is_24h ? '24h open' : 'Limited hours'}</div>
-        <div class="factors">
-          <span class="factor-chip">Coverage ${p.factors.coverage}%</span>
-          <span class="factor-chip">Stock ${p.factors.availability}%</span>
-          <span class="factor-chip">Distance ${p.factors.distance}%</span>
-          <span class="factor-chip">${p.factors.hours}</span>
-          ${p.factors.category !== '—' ? `<span class="factor-chip" style="background:#e1f5ee;color:#0f6e56">${p.factors.category}</span>` : ''}
-        </div>
-      </div>
-      <div class="pr-score">
-        <div class="pr-score-val" style="color:${colors[i] || '#888'}">${p.score}%</div>
-        <div class="pr-score-lbl">match</div>
-      </div>
-      <button class="nav-btn" onclick="navigateTo(${i});event.stopPropagation()">Navigate →</button>
-    </div>
-  `).join('');
-}
-
-// ── Navigate ────────────────────────────────────────────────────────────────
-let mapInitialised = false;
-
-function initMap() {
-  if (mapInitialised) return;
-  mapInitialised = true;
-
-  STATE.map = L.map('map', { zoomControl: true }).setView([STATE.userLat, STATE.userLng], 14);
-
-  // Free OpenStreetMap tiles
-  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    attribution: '© <a href="https://openstreetmap.org/copyright">OpenStreetMap</a> contributors',
-    maxZoom: 19,
-  }).addTo(STATE.map);
-
-  // User marker
-  STATE.userMarker = L.marker([STATE.userLat, STATE.userLng], {
-    icon: makeIcon('#378ADD', 'You'),
-    zIndexOffset: 1000,
-  }).addTo(STATE.map).bindPopup('<b>Your location</b>');
-}
-
-function makeIcon(color, label) {
-  return L.divIcon({
-    html: `<div style="
-      background:${color};border:2.5px solid white;
-      width:28px;height:28px;border-radius:50%;
-      display:flex;align-items:center;justify-content:center;
-      font-size:9px;font-weight:700;color:white;
-      box-shadow:0 2px 8px rgba(0,0,0,0.25);
-    ">${label}</div>`,
-    iconSize: [28, 28],
-    iconAnchor: [14, 14],
-    className: '',
+  elements.logoutBtn.addEventListener("click", () => {
+    localStorage.removeItem(AUTH_STORAGE_KEY);
+    hydrateAuthState();
+    elements.authFeedback.textContent = "Logged out. You are back in guest mode.";
   });
 }
 
-function renderNavPharmList() {
-  const container = document.getElementById('nav-pharm-list');
-  const colors = ['#1D9E75', '#0F6E56', '#378ADD', '#EF9F27', '#888', '#aaa'];
+function bindFinder() {
+  elements.modeButtons.forEach((button) => {
+    button.addEventListener("click", () => setSearchMode(button.dataset.mode));
+  });
 
-  if (!STATE.pharmacies.length) {
-    container.innerHTML = '<div class="empty-state" style="padding:16px 0">Run the prescription engine to see pharmacies.</div>';
+  elements.fileInput.addEventListener("change", async (event) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      await uploadPrescription(file);
+    }
+  });
+
+  ["dragenter", "dragover"].forEach((eventName) => {
+    elements.dropZone.addEventListener(eventName, (event) => {
+      event.preventDefault();
+      elements.dropZone.classList.add("drag-over");
+    });
+  });
+
+  ["dragleave", "drop"].forEach((eventName) => {
+    elements.dropZone.addEventListener(eventName, (event) => {
+      event.preventDefault();
+      elements.dropZone.classList.remove("drag-over");
+    });
+  });
+
+  elements.dropZone.addEventListener("drop", async (event) => {
+    const file = event.dataTransfer?.files?.[0];
+    if (file) {
+      await uploadPrescription(file);
+    }
+  });
+
+  elements.useManualBtn.addEventListener("click", async () => {
+    await parseManualMedicines();
+  });
+
+  elements.clearManualBtn.addEventListener("click", () => {
+    elements.manualInput.value = "";
+    setStatus("info", "Manual text cleared.");
+  });
+
+  elements.quickChips.forEach((chip) => {
+    chip.addEventListener("click", async () => {
+      setSearchMode("manual");
+      elements.manualInput.value = chip.dataset.example || "";
+      scrollToSection("finder");
+      await parseManualMedicines();
+    });
+  });
+
+  elements.selectAllBtn.addEventListener("click", () => {
+    STATE.medicines = STATE.medicines.map((medicine) => ({ ...medicine, selected: true }));
+    renderMedicines();
+  });
+
+  elements.clearSelectionBtn.addEventListener("click", () => {
+    STATE.medicines = [];
+    STATE.results = [];
+    renderMedicines();
+    renderResults();
+    setStatus("info", "Medicine list cleared.");
+  });
+
+  elements.findBtn.addEventListener("click", async () => {
+    await runPharmacyFinder();
+  });
+
+  elements.useLocationBtn.addEventListener("click", () => {
+    useCurrentLocation();
+  });
+
+  elements.medicineList.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-medicine-index]");
+    if (!button) {
+      return;
+    }
+
+    const index = Number(button.dataset.medicineIndex);
+    if (Number.isNaN(index) || !STATE.medicines[index]) {
+      return;
+    }
+
+    STATE.medicines[index].selected = !STATE.medicines[index].selected;
+    renderMedicines();
+  });
+}
+
+function setAuthMode(mode) {
+  STATE.authMode = mode === "register" ? "register" : "login";
+
+  elements.authTabs.forEach((tab) => {
+    tab.classList.toggle("active", tab.dataset.authMode === STATE.authMode);
+  });
+
+  elements.authNameField.classList.toggle("hidden", STATE.authMode !== "register");
+  elements.authSubmitBtn.textContent = STATE.authMode === "register" ? "Register" : "Login";
+  elements.authFeedback.textContent =
+    STATE.authMode === "register"
+      ? "Create a local account session for this browser."
+      : "Sign in locally to simulate the account flow.";
+}
+
+function hydrateAuthState() {
+  const user = readStoredUser();
+
+  if (!user) {
+    elements.authPill.textContent = "Guest mode";
+    elements.authStateCopy.textContent = "You are browsing in guest mode.";
+    elements.lookupStatusCopy.textContent =
+      "Login is optional right now. Your public pharmacy search already works without it.";
+    elements.logoutBtn.classList.add("hidden");
     return;
   }
 
-  container.innerHTML = STATE.pharmacies.map((p, i) => `
-    <div class="nav-pharm-card ${STATE.selectedPharmIdx === i ? 'active' : ''}" onclick="selectPharm(${i})" id="npc-${i}">
-      <div class="nav-pharm-dot" style="background:${colors[i] || '#888'}"></div>
-      <div class="nav-pharm-name">${p.name}</div>
-      <div class="nav-pharm-score">${p.score}%</div>
-    </div>
-  `).join('');
+  elements.authPill.textContent = `Logged in: ${user.name}`;
+  elements.authStateCopy.textContent = `${user.name} is signed in locally with ${user.email}.`;
+  elements.lookupStatusCopy.textContent =
+    "A local user session is active. This is where account-based medication tools can be added next.";
+  elements.logoutBtn.classList.remove("hidden");
 }
 
-function selectPharm(i) {
-  STATE.selectedPharmIdx = i;
-  const p = STATE.pharmacies[i];
-
-  // Highlight card
-  document.querySelectorAll('.nav-pharm-card').forEach((c, idx) => {
-    c.classList.toggle('active', idx === i);
-  });
-
-  // Clear old markers & route
-  STATE.pharmMarkers.forEach(m => STATE.map.removeLayer(m));
-  STATE.pharmMarkers = [];
-  if (STATE.routeControl) {
-    STATE.map.removeControl(STATE.routeControl);
-    STATE.routeControl = null;
+function readStoredUser() {
+  const raw = localStorage.getItem(AUTH_STORAGE_KEY);
+  if (!raw) {
+    return null;
   }
 
-  // Add pharmacy marker
-  const colors = ['#1D9E75', '#0F6E56', '#378ADD', '#EF9F27', '#888', '#aaa'];
-  const marker = L.marker([p.lat, p.lng], {
-    icon: makeIcon(colors[i] || '#1D9E75', 'Rx'),
-  }).addTo(STATE.map)
-    .bindPopup(`<b>${p.name}</b><br>${p.address}<br><b style="color:${colors[i]}">${p.score}% match</b><br>${p.phone}`)
-    .openPopup();
-  STATE.pharmMarkers.push(marker);
+  try {
+    return JSON.parse(raw);
+  } catch (error) {
+    localStorage.removeItem(AUTH_STORAGE_KEY);
+    return null;
+  }
+}
 
-  // Draw route via Leaflet Routing Machine (uses free OSRM)
-  STATE.routeControl = L.Routing.control({
-    waypoints: [
-      L.latLng(STATE.userLat, STATE.userLng),
-      L.latLng(p.lat, p.lng),
-    ],
-    routeWhileDragging: false,
-    addWaypoints: false,
-    draggableWaypoints: false,
-    fitSelectedRoutes: true,
-    lineOptions: {
-      styles: [{ color: colors[i] || '#1D9E75', weight: 5, opacity: 0.85 }],
+function setSearchMode(mode) {
+  STATE.searchMode = mode === "manual" ? "manual" : "upload";
+
+  elements.modeButtons.forEach((button) => {
+    button.classList.toggle("active", button.dataset.mode === STATE.searchMode);
+  });
+
+  elements.uploadPanel.classList.toggle("active", STATE.searchMode === "upload");
+  elements.manualPanel.classList.toggle("active", STATE.searchMode === "manual");
+}
+
+async function uploadPrescription(file) {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  elements.uploadHelper.textContent = `Selected file: ${file.name}`;
+  setStatus("loading", "Reading the uploaded prescription and extracting medicines...");
+
+  try {
+    const response = await fetch("/api/ocr", {
+      method: "POST",
+      body: formData,
+    });
+
+    const data = await response.json();
+    if (!response.ok || data.error) {
+      throw new Error(data.error || "Upload failed.");
+    }
+
+    const medicines = normaliseMedicines(data.medicines, "Upload OCR");
+    if (!medicines.length) {
+      throw new Error("No medicines were detected in that file.");
+    }
+
+    STATE.medicines = medicines;
+    STATE.results = [];
+    renderMedicines();
+    renderResults();
+    setStatus("success", `Found ${medicines.length} medicine${medicines.length > 1 ? "s" : ""} from ${file.name}.`);
+  } catch (error) {
+    setStatus("error", error.message);
+  }
+}
+
+async function parseManualMedicines() {
+  const text = elements.manualInput.value.trim();
+  if (!text) {
+    setStatus("error", "Type at least one medicine before running manual search.");
+    return;
+  }
+
+  setStatus("loading", "Parsing the medicines you typed...");
+
+  try {
+    const response = await fetch("/api/medicines", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ text }),
+    });
+
+    const data = await response.json();
+    if (!response.ok || data.error) {
+      throw new Error(data.error || "Could not parse manual medicines.");
+    }
+
+    const medicines = normaliseMedicines(data.medicines, "Manual entry");
+    if (!medicines.length) {
+      throw new Error("No medicines were found in the typed text.");
+    }
+
+    STATE.medicines = medicines;
+    STATE.results = [];
+    renderMedicines();
+    renderResults();
+    setStatus("success", `Loaded ${medicines.length} medicine${medicines.length > 1 ? "s" : ""} from typed text.`);
+  } catch (error) {
+    setStatus("error", error.message);
+  }
+}
+
+function normaliseMedicines(medicines, source) {
+  return (medicines || []).map((medicine) => ({
+    name: medicine.name || "Unknown medicine",
+    dose: medicine.dose || "As directed",
+    frequency: medicine.frequency || "As directed",
+    source,
+    selected: medicine.selected !== false,
+  }));
+}
+
+function renderMedicines() {
+  if (!STATE.medicines.length) {
+    elements.medicineList.innerHTML = '<div class="empty-block">Your selected medicines will appear here.</div>';
+    updateFindButton();
+    return;
+  }
+
+  elements.medicineList.innerHTML = STATE.medicines
+    .map((medicine, index) => {
+      const selectedClass = medicine.selected ? "selected" : "";
+      return `
+        <button type="button" class="medicine-item ${selectedClass}" data-medicine-index="${index}">
+          <span class="medicine-toggle">${medicine.selected ? "✓" : ""}</span>
+          <span>
+            <strong>${escapeHtml(medicine.name)}</strong>
+            <span class="medicine-meta">${escapeHtml(medicine.dose)} | ${escapeHtml(medicine.frequency)}</span>
+          </span>
+          <span class="medicine-origin">${escapeHtml(medicine.source)}</span>
+        </button>
+      `;
+    })
+    .join("");
+
+  updateFindButton();
+}
+
+function updateFindButton() {
+  const hasSelection = STATE.medicines.some((medicine) => medicine.selected);
+  elements.findBtn.disabled = !hasSelection;
+}
+
+async function runPharmacyFinder() {
+  const selectedMedicines = STATE.medicines.filter((medicine) => medicine.selected).map((medicine) => medicine.name);
+  if (!selectedMedicines.length) {
+    setStatus("error", "Select at least one medicine before searching.");
+    return;
+  }
+
+  const lat = Number(elements.latInput.value);
+  const lng = Number(elements.lngInput.value);
+
+  setStatus("loading", "Ranking nearby pharmacies for the current medicine list...");
+
+  try {
+    const response = await fetch("/api/rank", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        medicines: selectedMedicines,
+        lat: Number.isFinite(lat) ? lat : undefined,
+        lng: Number.isFinite(lng) ? lng : undefined,
+      }),
+    });
+
+    const data = await response.json();
+    if (!response.ok || data.error) {
+      throw new Error(data.error || "Could not rank pharmacies.");
+    }
+
+    STATE.results = data.pharmacies || [];
+    renderResults();
+
+    if (!STATE.results.length) {
+      setStatus("error", "No pharmacies were returned for this search.");
+      return;
+    }
+
+    setStatus("success", `Ranked ${STATE.results.length} pharmacies for ${selectedMedicines.length} selected medicine${selectedMedicines.length > 1 ? "s" : ""}.`);
+  } catch (error) {
+    setStatus("error", error.message);
+  }
+}
+
+function renderResults() {
+  if (!STATE.results.length) {
+    elements.resultsList.innerHTML = '<div class="empty-block">No pharmacy results yet.</div>';
+    return;
+  }
+
+  elements.resultsList.innerHTML = STATE.results
+    .map((pharmacy, index) => {
+      const medicineMatches = (pharmacy.medicines || [])
+        .map(
+          (medicine) => `
+            <span class="stock-chip ${escapeHtml(medicine.stock_label)}">
+              ${escapeHtml(medicine.medicine)}: ${escapeHtml(medicine.stock_label)}
+            </span>
+          `
+        )
+        .join("");
+
+      return `
+        <article class="result-card">
+          <div class="result-top">
+            <div>
+              <h4>${index + 1}. ${escapeHtml(pharmacy.name)}</h4>
+              <p class="result-address">${escapeHtml(pharmacy.address || "Address not available")}</p>
+              <p class="result-note">${escapeHtml(pharmacy.phone || "No phone listed")} | ${pharmacy.is_24h ? "24h" : "Limited hours"}</p>
+            </div>
+            <div class="result-score">
+              <strong>${escapeHtml(String(pharmacy.score))}%</strong>
+              <span>match</span>
+            </div>
+          </div>
+          <div class="result-metrics">
+            <span class="metric-chip">${escapeHtml(String(pharmacy.distance_km))} km away</span>
+            <span class="metric-chip">${escapeHtml(String(pharmacy.coverage_pct))}% medicine coverage</span>
+            <span class="metric-chip">Reliability ${escapeHtml(String(pharmacy.factor_scores?.reliability ?? "-"))}%</span>
+            <span class="metric-chip">${escapeHtml(String(pharmacy.factor_scores?.hours ?? "Hours unavailable"))}</span>
+          </div>
+          <div class="result-match-list">${medicineMatches}</div>
+        </article>
+      `;
+    })
+    .join("");
+}
+
+function useCurrentLocation() {
+  if (!navigator.geolocation) {
+    setStatus("error", "Geolocation is not available in this browser.");
+    return;
+  }
+
+  setStatus("loading", "Trying to get your current location...");
+
+  navigator.geolocation.getCurrentPosition(
+    (position) => {
+      elements.latInput.value = position.coords.latitude.toFixed(6);
+      elements.lngInput.value = position.coords.longitude.toFixed(6);
+      setStatus("success", "Current location added to the search.");
     },
-    createMarker: () => null,   // we handle markers ourselves
-    show: false,                 // hide the default sidebar panel
-  }).addTo(STATE.map);
+    () => {
+      setStatus("error", "Could not access your current location. The default coordinates are still available.");
+    },
+    {
+      enableHighAccuracy: true,
+      timeout: 10000,
+      maximumAge: 0,
+    }
+  );
+}
 
-  STATE.routeControl.on('routesfound', function (e) {
-    const route = e.routes[0];
-    const summary = route.summary;
-    const distKm = (summary.totalDistance / 1000).toFixed(1);
-    const etaMins = Math.ceil(summary.totalTime / 60);
+function setStatus(type, message) {
+  elements.statusBanner.className = `status-banner ${type}`;
+  elements.statusBanner.textContent = message;
+}
 
-    document.getElementById('route-card').style.display = 'block';
-    document.getElementById('route-title').textContent = `Route to ${p.name}`;
-    document.getElementById('r-dist').textContent = distKm + ' km';
-    document.getElementById('r-eta').textContent = etaMins + ' min';
-    document.getElementById('nav-subtitle').textContent = `Navigating to ${p.name}`;
+function scrollToSection(id) {
+  const element = document.getElementById(id);
+  if (!element) {
+    return;
+  }
 
-    // Render turn-by-turn steps
-    const steps = route.instructions || [];
-    document.getElementById('route-steps').innerHTML = steps.map((s, idx) => `
-      <div class="rstep">
-        <div class="rstep-num ${idx === steps.length - 1 ? 'rstep-done' : ''}">${idx === steps.length - 1 ? '✓' : idx + 1}</div>
-        <div>
-          <div class="rstep-txt">${s.text}</div>
-          <div class="rstep-dist">${(s.distance / 1000).toFixed(2)} km</div>
-        </div>
-      </div>
-    `).join('');
+  element.scrollIntoView({ behavior: "smooth", block: "start" });
+  setActiveNavLink(id);
+}
+
+function updateActiveNav() {
+  const marker = window.scrollY + window.innerHeight * 0.25;
+  let activeId = "overview";
+
+  sections.forEach((section) => {
+    if (!section.element) {
+      return;
+    }
+
+    const top = section.element.offsetTop;
+    if (marker >= top) {
+      activeId = section.id;
+    }
   });
 
-  STATE.routeControl.on('routingerror', function () {
-    // OSRM fallback: draw a straight dashed line
-    const fallback = L.polyline(
-      [[STATE.userLat, STATE.userLng], [p.lat, p.lng]],
-      { color: colors[i] || '#1D9E75', weight: 4, dashArray: '8,6' }
-    ).addTo(STATE.map);
-    STATE.pharmMarkers.push(fallback);
-    STATE.map.fitBounds(fallback.getBounds(), { padding: [40, 40] });
+  setActiveNavLink(activeId);
+}
 
-    document.getElementById('route-card').style.display = 'block';
-    document.getElementById('route-title').textContent = `Straight-line route to ${p.name}`;
-    document.getElementById('r-dist').textContent = p.distance_km + ' km';
-    document.getElementById('r-eta').textContent = '— min';
-    document.getElementById('route-steps').innerHTML =
-      '<div class="rstep-txt" style="color:#999">Live routing unavailable offline. Showing straight-line path.</div>';
+function setActiveNavLink(activeId) {
+  elements.navLinks.forEach((link) => {
+    link.classList.toggle("active", link.dataset.target === activeId);
   });
 }
 
-// Called from prescription results — auto-jumps to Navigate
-function navigateTo(pharmIdx) {
-  STATE.selectedPharmIdx = pharmIdx;
-  goTo('navigate');
-  // Wait for map init then select
-  setTimeout(() => {
-    renderNavPharmList();
-    selectPharm(pharmIdx);
-  }, 100);
+function escapeHtml(value) {
+  return String(value)
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
 }
 
-function centerMap() {
-  if (!STATE.map) return;
-  STATE.map.setView([STATE.userLat, STATE.userLng], 14);
-}
-
-// ── Init ────────────────────────────────────────────────────────────────────
-renderVault();
+init();
