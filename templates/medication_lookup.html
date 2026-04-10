@@ -1,0 +1,31 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-grid">
+  <article class="panel hero-panel">
+    <p class="eyebrow">Medication Lookup</p>
+    <h1>Keep deeper medication tools separate from urgent search.</h1>
+    <p class="lead">
+      This page is meant for saved notes, medication context, and account-side features that should not interrupt the
+      Pharmacy Finder flow.
+    </p>
+  </article>
+
+  <article class="panel side-panel">
+    <div class="note-stack">
+      <div class="note-row">
+        <h3>Why this matters</h3>
+        <p>When the finder and lookup have different jobs, the product feels more deliberate and usable.</p>
+      </div>
+      <div class="note-row">
+        <h3>What comes next</h3>
+        <p>This page can grow into saved medication history, reminders, and formulation details when you are ready.</p>
+      </div>
+      <div class="note-row">
+        <h3>Current priority</h3>
+        <p>Keep the public finder clean and fast. Keep account tools here.</p>
+      </div>
+    </div>
+  </article>
+</section>
+{% endblock %}

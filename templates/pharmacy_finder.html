@@ -1,0 +1,93 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-header-block">
+  <p class="eyebrow">Pharmacy Finder</p>
+  <h1 class="page-title">Search without logging in.</h1>
+  <p class="lead narrow">
+    Upload a prescription or type medicines manually, then search using a simple address instead of coordinates.
+  </p>
+</section>
+
+<section class="finder-layout">
+  <article class="panel finder-panel">
+    <div class="mode-toggle" role="tablist" aria-label="Search mode">
+      <button type="button" class="mode-btn active" data-mode="upload">Upload Prescription</button>
+      <button type="button" class="mode-btn" data-mode="manual">Type Medicines</button>
+    </div>
+
+    <div class="mode-panel active" id="upload-panel">
+      <label for="rx-file" class="drop-zone" id="rx-drop-zone">
+        <input type="file" id="rx-file" accept=".pdf,.png,.jpg,.jpeg,.docx,.doc,.txt" hidden>
+        <span class="drop-icon">Upload</span>
+        <strong>Drop a prescription here or click to choose one</strong>
+        <span>Supported: PDF, JPG, PNG, DOCX, DOC, TXT</span>
+      </label>
+      <p class="helper-text" id="upload-helper">No file selected yet.</p>
+    </div>
+
+    <div class="mode-panel" id="manual-panel">
+      <label class="field-label" for="manual-auto-input">Search for a medication</label>
+      <div class="button-row-tight" style="margin-top: 4px; display: flex; gap: 8px;">
+        <input type="text" id="manual-auto-input" list="medicine-suggestions" placeholder="Autocomplete search... e.g. Paracetamol" style="flex: 1;">
+        <datalist id="medicine-suggestions">
+          {% for med in known_medicines %}
+          <option value="{{ med|title }}">
+          {% endfor %}
+        </datalist>
+        <button type="button" class="primary-button" style="padding: 10px 24px;" id="add-medicine-btn">Add</button>
+      </div>
+
+      <label class="field-label" for="manual-input" style="margin-top: 20px;">Or type/review multiple here</label>
+      <textarea id="manual-input" rows="4" style="margin-top: 4px;" placeholder="Paracetamol 650 mg&#10;Amoxicillin 500 mg"></textarea>
+      <div class="button-row button-row-tight" style="margin-top: 16px;">
+        <button type="button" class="secondary-link secondary-button" id="use-manual-btn">Search typed list</button>
+        <button type="button" class="text-btn" id="clear-manual-btn">Clear text</button>
+      </div>
+    </div>
+
+    <div class="sub-panel">
+      <label class="field-label" for="address-input">Address</label>
+      <input type="text" id="address-input" value="New Delhi" placeholder="Type your address, city, or neighborhood">
+      <p class="helper-text">You can enter a city, neighborhood, or a fuller address. The sample pharmacy data is currently centered around Delhi.</p>
+    </div>
+  </article>
+
+  <article class="panel results-panel">
+    <div class="results-head">
+      <div>
+        <p class="small-label">Current search</p>
+        <h2>Medicines and ranked pharmacies</h2>
+      </div>
+      <button type="button" class="primary-link primary-button" id="find-btn" disabled>Find pharmacies</button>
+    </div>
+
+    <div class="status-banner info" id="status-banner">Start by uploading a prescription or typing medicines manually.</div>
+
+    <div class="results-grid">
+      <div class="sub-panel">
+        <div class="panel-row">
+          <h3>Medicines for this search</h3>
+          <div class="inline-actions">
+            <button type="button" class="text-btn" id="select-all-btn">Select all</button>
+            <button type="button" class="text-btn" id="clear-selection-btn">Clear</button>
+          </div>
+        </div>
+        <div id="medicine-list" class="scroll-list">
+          <div class="empty-block">Your selected medicines will appear here.</div>
+        </div>
+      </div>
+
+      <div class="sub-panel">
+        <div class="panel-row">
+          <h3>Nearby pharmacies</h3>
+          <span class="helper-text">Best options to call first</span>
+        </div>
+        <div id="results-list" class="scroll-list">
+          <div class="empty-block">No pharmacy results yet.</div>
+        </div>
+      </div>
+    </div>
+  </article>
+</section>
+{% endblock %}

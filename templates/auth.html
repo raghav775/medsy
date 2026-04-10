@@ -1,0 +1,56 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="auth-layout">
+  <article class="panel hero-panel">
+    <p class="eyebrow">{{ auth_mode|title }}</p>
+    <h1>{{ auth_title }}</h1>
+    <p class="lead">{{ auth_description }}</p>
+
+    <div class="simple-grid">
+      <div class="sub-panel">
+        <h3>Finder stays public</h3>
+        <p class="helper-text">Users can still search pharmacies without being forced into login first.</p>
+      </div>
+      <div class="sub-panel">
+        <h3>Account path stays separate</h3>
+        <p class="helper-text">This page gives login and register their own space instead of crowding the overview.</p>
+      </div>
+    </div>
+  </article>
+
+  <article class="panel auth-panel">
+    <div class="mode-toggle auth-page-toggle">
+      <a class="mode-link {% if auth_mode == 'login' %}active{% endif %}" href="{{ url_for('login') }}">Login</a>
+      <a class="mode-link {% if auth_mode == 'register' %}active{% endif %}" href="{{ url_for('register') }}">Register</a>
+    </div>
+
+    <form id="auth-form" class="auth-form" data-auth-mode="{{ auth_mode }}">
+      <label class="field-label auth-name-field {% if auth_mode != 'register' %}hidden{% endif %}" for="auth-name">
+        Full name
+        <input type="text" id="auth-name" placeholder="Raghav Gulati">
+      </label>
+
+      <label class="field-label" for="auth-email">
+        Email
+        <input type="email" id="auth-email" placeholder="you@example.com" required>
+      </label>
+
+      <label class="field-label" for="auth-password">
+        Password
+        <input type="password" id="auth-password" placeholder="Enter password" required>
+      </label>
+
+      <button type="submit" class="primary-link primary-button full-width" id="auth-submit-btn">{{ auth_button_label }}</button>
+    </form>
+
+    <div class="auth-feedback" id="auth-feedback">Not signed in yet.</div>
+
+    <div class="sub-panel auth-state-box">
+      <h3>Current session</h3>
+      <p id="auth-state-copy">You are browsing in guest mode.</p>
+      <button type="button" class="secondary-link secondary-button hidden" id="logout-btn">Logout</button>
+    </div>
+  </article>
+</section>
+{% endblock %}

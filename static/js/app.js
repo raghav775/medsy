@@ -3,211 +3,227 @@
 const AUTH_STORAGE_KEY = "medsy_user_session";
 
 const STATE = {
-  authMode: "login",
   searchMode: "upload",
   medicines: [],
   results: [],
-  lastScrollY: 0,
-  scrollQueued: false,
-  reduceMotion: window.matchMedia("(prefers-reduced-motion: reduce)").matches,
 };
-
-const elements = {
-  header: document.getElementById("site-header"),
-  navLinks: Array.from(document.querySelectorAll(".nav-link")),
-  targetButtons: Array.from(document.querySelectorAll("[data-target]")),
-  authJumpButtons: Array.from(document.querySelectorAll("[data-auth-jump]")),
-  authTabs: Array.from(document.querySelectorAll(".auth-toggle-btn")),
-  authForm: document.getElementById("auth-form"),
-  authNameField: document.querySelector(".auth-name-field"),
-  authName: document.getElementById("auth-name"),
-  authEmail: document.getElementById("auth-email"),
-  authPassword: document.getElementById("auth-password"),
-  authSubmitBtn: document.getElementById("auth-submit-btn"),
-  authFeedback: document.getElementById("auth-feedback"),
-  authStateCopy: document.getElementById("auth-state-copy"),
-  authPill: document.getElementById("auth-pill"),
-  logoutBtn: document.getElementById("logout-btn"),
-  lookupStatusCopy: document.getElementById("lookup-status-copy"),
-  modeButtons: Array.from(document.querySelectorAll(".mode-btn")),
-  uploadPanel: document.getElementById("upload-panel"),
-  manualPanel: document.getElementById("manual-panel"),
-  uploadHelper: document.getElementById("upload-helper"),
-  fileInput: document.getElementById("rx-file"),
-  dropZone: document.getElementById("rx-drop-zone"),
-  manualInput: document.getElementById("manual-input"),
-  useManualBtn: document.getElementById("use-manual-btn"),
-  clearManualBtn: document.getElementById("clear-manual-btn"),
-  statusBanner: document.getElementById("status-banner"),
-  medicineList: document.getElementById("medicine-list"),
-  selectAllBtn: document.getElementById("select-all-btn"),
-  clearSelectionBtn: document.getElementById("clear-selection-btn"),
-  findBtn: document.getElementById("find-btn"),
-  resultsList: document.getElementById("results-list"),
-  latInput: document.getElementById("lat-input"),
-  lngInput: document.getElementById("lng-input"),
-  useLocationBtn: document.getElementById("use-location-btn"),
-  quickChips: Array.from(document.querySelectorAll(".quick-chip")),
-  revealNodes: Array.from(document.querySelectorAll("[data-reveal]")),
-  parallaxNodes: Array.from(document.querySelectorAll("[data-parallax]")),
-};
-
-const sections = ["overview", "finder", "lookup", "contact"].map((id) => ({
-  id,
-  element: document.getElementById(id),
-}));
 
 function init() {
-  bindNavigation();
-  bindAuth();
-  bindFinder();
-  bindMotion();
-  setAuthMode(STATE.authMode);
-  hydrateAuthState();
-  handleWindowScroll(true);
-  renderMedicines();
-  renderResults();
+  hydrateHeaderAuth();
+  initAuthPage();
+  initFinderPage();
 }
 
-function bindNavigation() {
-  elements.targetButtons.forEach((button) => {
-    button.addEventListener("click", () => {
-      const target = button.dataset.target;
-      if (target) {
-        scrollToSection(target);
-      }
-    });
-  });
+function hydrateHeaderAuth() {
+  const pill = document.getElementById("auth-pill");
+  if (!pill) {
+    return;
+  }
 
-  elements.authJumpButtons.forEach((button) => {
-    button.addEventListener("click", () => {
-      setAuthMode(button.dataset.authJump || "login");
-      scrollToSection("account");
-    });
-  });
-
-  window.addEventListener("scroll", queueWindowScroll, { passive: true });
-  window.addEventListener("resize", () => handleWindowScroll(true), { passive: true });
+  const user = readStoredUser();
+  pill.textContent = user ? `Logged in: ${user.name}` : "Guest mode";
 }
 
-function bindAuth() {
-  elements.authTabs.forEach((tab) => {
-    tab.addEventListener("click", () => setAuthMode(tab.dataset.authMode));
-  });
+function initAuthPage() {
+  const form = document.getElementById("auth-form");
+  if (!form) {
+    return;
+  }
 
-  elements.authForm.addEventListener("submit", (event) => {
+  const authMode = form.dataset.authMode === "register" ? "register" : "login";
+  const nameField = document.querySelector(".auth-name-field");
+  const nameInput = document.getElementById("auth-name");
+  const emailInput = document.getElementById("auth-email");
+  const passwordInput = document.getElementById("auth-password");
+  const feedback = document.getElementById("auth-feedback");
+  const stateCopy = document.getElementById("auth-state-copy");
+  const logoutBtn = document.getElementById("logout-btn");
+
+  if (nameField) {
+    nameField.classList.toggle("hidden", authMode !== "register");
+  }
+
+  syncAuthState(stateCopy, logoutBtn);
+
+  form.addEventListener("submit", (event) => {
     event.preventDefault();
 
-    const mode = STATE.authMode;
-    const email = elements.authEmail.value.trim();
-    const password = elements.authPassword.value.trim();
-    const name = elements.authName.value.trim();
+    const email = emailInput ? emailInput.value.trim() : "";
+    const password = passwordInput ? passwordInput.value.trim() : "";
+    const fullName = nameInput ? nameInput.value.trim() : "";
 
     if (!email || !password) {
-      elements.authFeedback.textContent = "Enter email and password to continue.";
+      if (feedback) {
+        feedback.textContent = "Enter email and password to continue.";
+      }
       return;
     }
 
-    if (mode === "register" && !name) {
-      elements.authFeedback.textContent = "Enter a full name to create the local account session.";
+    if (authMode === "register" && !fullName) {
+      if (feedback) {
+        feedback.textContent = "Enter a full name before registering.";
+      }
       return;
     }
 
     const existing = readStoredUser();
     const user = {
-      name:
-        mode === "register"
-          ? name
-          : existing && existing.email === email
-            ? existing.name
-            : email.split("@")[0],
+      name: authMode === "register" ? fullName : existing && existing.email === email ? existing.name : email.split("@")[0],
       email,
     };
 
     localStorage.setItem(AUTH_STORAGE_KEY, JSON.stringify(user));
-    hydrateAuthState();
+    hydrateHeaderAuth();
+    syncAuthState(stateCopy, logoutBtn);
 
-    elements.authFeedback.textContent =
-      mode === "register"
+    if (feedback) {
+      feedback.textContent = authMode === "register"
         ? `Registered locally as ${user.name}.`
         : `Logged in locally as ${user.name}.`;
-    elements.authPassword.value = "";
+    }
+
+    if (passwordInput) {
+      passwordInput.value = "";
+    }
   });
 
-  elements.logoutBtn.addEventListener("click", () => {
-    localStorage.removeItem(AUTH_STORAGE_KEY);
-    hydrateAuthState();
-    elements.authFeedback.textContent = "Logged out. You are back in guest mode.";
-  });
+  if (logoutBtn) {
+    logoutBtn.addEventListener("click", () => {
+      localStorage.removeItem(AUTH_STORAGE_KEY);
+      hydrateHeaderAuth();
+      syncAuthState(stateCopy, logoutBtn);
+      if (feedback) {
+        feedback.textContent = "Logged out. You are back in guest mode.";
+      }
+    });
+  }
 }
 
-function bindFinder() {
-  elements.modeButtons.forEach((button) => {
-    button.addEventListener("click", () => setSearchMode(button.dataset.mode));
-  });
+function syncAuthState(stateCopy, logoutBtn) {
+  const user = readStoredUser();
 
-  elements.fileInput.addEventListener("change", async (event) => {
-    const file = event.target.files ? event.target.files[0] : null;
-    if (file) {
-      await uploadPrescription(file);
-    }
-  });
+  if (stateCopy) {
+    stateCopy.textContent = user
+      ? `${user.name} is signed in locally with ${user.email}.`
+      : "You are browsing in guest mode.";
+  }
 
-  ["dragenter", "dragover"].forEach((eventName) => {
-    elements.dropZone.addEventListener(eventName, (event) => {
-      event.preventDefault();
-      elements.dropZone.classList.add("drag-over");
+  if (logoutBtn) {
+    logoutBtn.classList.toggle("hidden", !user);
+  }
+}
+
+function initFinderPage() {
+  const modeButtons = Array.from(document.querySelectorAll(".mode-btn"));
+  const uploadPanel = document.getElementById("upload-panel");
+  const manualPanel = document.getElementById("manual-panel");
+  const fileInput = document.getElementById("rx-file");
+  const dropZone = document.getElementById("rx-drop-zone");
+  const uploadHelper = document.getElementById("upload-helper");
+  const manualInput = document.getElementById("manual-input");
+  const addressInput = document.getElementById("address-input");
+  const useManualBtn = document.getElementById("use-manual-btn");
+  const clearManualBtn = document.getElementById("clear-manual-btn");
+  const statusBanner = document.getElementById("status-banner");
+  const medicineList = document.getElementById("medicine-list");
+  const resultsList = document.getElementById("results-list");
+  const selectAllBtn = document.getElementById("select-all-btn");
+  const clearSelectionBtn = document.getElementById("clear-selection-btn");
+  const findBtn = document.getElementById("find-btn");
+
+  if (!statusBanner || !medicineList || !resultsList || !findBtn) {
+    return;
+  }
+
+  modeButtons.forEach((button) => {
+    button.addEventListener("click", () => {
+      setSearchMode(button.dataset.mode, modeButtons, uploadPanel, manualPanel);
     });
   });
 
-  ["dragleave", "drop"].forEach((eventName) => {
-    elements.dropZone.addEventListener(eventName, (event) => {
-      event.preventDefault();
-      elements.dropZone.classList.remove("drag-over");
+  if (fileInput) {
+    fileInput.addEventListener("change", async (event) => {
+      const file = event.target.files ? event.target.files[0] : null;
+      if (file) {
+        await uploadPrescription(file, uploadHelper, statusBanner, medicineList, resultsList, findBtn);
+      }
     });
-  });
+  }
 
-  elements.dropZone.addEventListener("drop", async (event) => {
-    const file = event.dataTransfer && event.dataTransfer.files ? event.dataTransfer.files[0] : null;
-    if (file) {
-      await uploadPrescription(file);
-    }
-  });
+  if (dropZone) {
+    ["dragenter", "dragover"].forEach((eventName) => {
+      dropZone.addEventListener(eventName, (event) => {
+        event.preventDefault();
+        dropZone.classList.add("drag-over");
+      });
+    });
 
-  elements.useManualBtn.addEventListener("click", async () => {
-    await parseManualMedicines();
-  });
+    ["dragleave", "drop"].forEach((eventName) => {
+      dropZone.addEventListener(eventName, (event) => {
+        event.preventDefault();
+        dropZone.classList.remove("drag-over");
+      });
+    });
 
-  elements.clearManualBtn.addEventListener("click", () => {
-    elements.manualInput.value = "";
-    setStatus("info", "Manual text cleared.");
-  });
+    dropZone.addEventListener("drop", async (event) => {
+      const file = event.dataTransfer && event.dataTransfer.files ? event.dataTransfer.files[0] : null;
+      if (file) {
+        await uploadPrescription(file, uploadHelper, statusBanner, medicineList, resultsList, findBtn);
+      }
+    });
+  }
 
-  elements.selectAllBtn.addEventListener("click", () => {
-    STATE.medicines = STATE.medicines.map((medicine) => ({
-      ...medicine,
-      selected: true,
-    }));
-    renderMedicines();
-  });
+  if (useManualBtn && manualInput) {
+    useManualBtn.addEventListener("click", async () => {
+      await parseManualMedicines(manualInput.value, statusBanner, medicineList, resultsList, findBtn);
+    });
+  }
 
-  elements.clearSelectionBtn.addEventListener("click", () => {
-    STATE.medicines = [];
-    STATE.results = [];
-    renderMedicines();
-    renderResults();
-    setStatus("info", "Medicine list cleared.");
-  });
+  if (clearManualBtn && manualInput) {
+    clearManualBtn.addEventListener("click", () => {
+      manualInput.value = "";
+      setStatus(statusBanner, "info", "Manual text cleared.");
+    });
+  }
 
-  elements.findBtn.addEventListener("click", async () => {
-    await runPharmacyFinder();
-  });
+  const manualAutoInput = document.getElementById("manual-auto-input");
+  const addMedicineBtn = document.getElementById("add-medicine-btn");
+  if (addMedicineBtn && manualAutoInput && manualInput) {
+    addMedicineBtn.addEventListener("click", () => {
+      const val = manualAutoInput.value.trim();
+      if (val) {
+        manualInput.value = manualInput.value ? manualInput.value + "\\n" + val : val;
+        manualAutoInput.value = "";
+        setStatus(statusBanner, "success", `Added ${val} to manual list. Press 'Search typed list' when ready.`);
+      }
+    });
 
-  elements.useLocationBtn.addEventListener("click", () => {
-    useCurrentLocation();
-  });
+    manualAutoInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") {
+        e.preventDefault();
+        addMedicineBtn.click();
+      }
+    });
+  }
 
-  elements.medicineList.addEventListener("click", (event) => {
+  if (selectAllBtn) {
+    selectAllBtn.addEventListener("click", () => {
+      STATE.medicines = STATE.medicines.map((medicine) => ({ ...medicine, selected: true }));
+      renderMedicines(medicineList, findBtn);
+    });
+  }
+
+  if (clearSelectionBtn) {
+    clearSelectionBtn.addEventListener("click", () => {
+      STATE.medicines = [];
+      STATE.results = [];
+      renderMedicines(medicineList, findBtn);
+      renderResults(resultsList);
+      setStatus(statusBanner, "info", "Medicine list cleared.");
+    });
+  }
+
+  medicineList.addEventListener("click", (event) => {
     const button = event.target.closest("[data-medicine-index]");
     if (!button) {
       return;
@@ -219,122 +235,269 @@ function bindFinder() {
     }
 
     STATE.medicines[index].selected = !STATE.medicines[index].selected;
-    renderMedicines();
+    renderMedicines(medicineList, findBtn);
   });
+
+  findBtn.addEventListener("click", async () => {
+    await runFinder(addressInput, statusBanner, resultsList);
+  });
+
+  renderMedicines(medicineList, findBtn);
+  renderResults(resultsList);
+  hydrateFinderFromQuery(modeButtons, uploadPanel, manualPanel, manualInput, addressInput, statusBanner, medicineList, resultsList, findBtn);
 }
 
-function bindMotion() {
-  if (STATE.reduceMotion) {
-    elements.revealNodes.forEach((node) => {
-      node.classList.add("is-visible");
+function hydrateFinderFromQuery(modeButtons, uploadPanel, manualPanel, manualInput, addressInput, statusBanner, medicineList, resultsList, findBtn) {
+  const params = new URLSearchParams(window.location.search);
+  const mode = params.get("mode");
+  const text = params.get("text");
+  const address = params.get("address");
+
+  if (mode) {
+    setSearchMode(mode, modeButtons, uploadPanel, manualPanel);
+  }
+
+  if (address && addressInput) {
+    addressInput.value = address;
+  }
+
+  if (text && manualInput) {
+    manualInput.value = text;
+    parseManualMedicines(text, statusBanner, medicineList, resultsList, findBtn);
+  }
+}
+
+function setSearchMode(mode, modeButtons, uploadPanel, manualPanel) {
+  STATE.searchMode = mode === "manual" ? "manual" : "upload";
+
+  modeButtons.forEach((button) => {
+    button.classList.toggle("active", button.dataset.mode === STATE.searchMode);
+  });
+
+  if (uploadPanel) {
+    uploadPanel.classList.toggle("active", STATE.searchMode === "upload");
+  }
+
+  if (manualPanel) {
+    manualPanel.classList.toggle("active", STATE.searchMode === "manual");
+  }
+}
+
+async function uploadPrescription(file, uploadHelper, statusBanner, medicineList, resultsList, findBtn) {
+  const formData = new FormData();
+  formData.append("file", file);
+
+  if (uploadHelper) {
+    uploadHelper.textContent = `Selected file: ${file.name}`;
+  }
+
+  setStatus(statusBanner, "loading", "Reading the uploaded prescription and extracting medicines...");
+
+  try {
+    const response = await fetch("/api/ocr", {
+      method: "POST",
+      body: formData,
     });
-    return;
-  }
+    const data = await response.json();
 
-  elements.revealNodes.forEach((node) => {
-    const delay = Number(node.dataset.delay || 0);
-    node.style.transitionDelay = `${delay}ms`;
-  });
-
-  const observer = new IntersectionObserver(
-    (entries) => {
-      entries.forEach((entry) => {
-        if (!entry.isIntersecting) {
-          return;
-        }
-
-        entry.target.classList.add("is-visible");
-        observer.unobserve(entry.target);
-      });
-    },
-    {
-      threshold: 0.16,
-      rootMargin: "0px 0px -10% 0px",
+    if (!response.ok || data.error) {
+      throw new Error(data.error || "Upload failed.");
     }
-  );
 
-  elements.revealNodes.forEach((node) => {
-    observer.observe(node);
-  });
+    const medicines = normaliseMedicines(data.medicines, "Upload OCR");
+    if (!medicines.length) {
+      throw new Error("No medicines were detected in that file.");
+    }
+
+    STATE.medicines = medicines;
+    STATE.results = [];
+    renderMedicines(medicineList, findBtn);
+    renderResults(resultsList);
+    setStatus(statusBanner, "success", `Found ${medicines.length} medicine${medicines.length > 1 ? "s" : ""} from ${file.name}.`);
+  } catch (error) {
+    setStatus(statusBanner, "error", error.message);
+  }
 }
 
-function queueWindowScroll() {
-  if (STATE.scrollQueued) {
+async function parseManualMedicines(text, statusBanner, medicineList, resultsList, findBtn) {
+  const cleanedText = text.trim();
+  if (!cleanedText) {
+    setStatus(statusBanner, "error", "Type at least one medicine before running manual search.");
     return;
   }
 
-  STATE.scrollQueued = true;
-  window.requestAnimationFrame(() => {
-    handleWindowScroll();
-    STATE.scrollQueued = false;
-  });
-}
+  setStatus(statusBanner, "loading", "Parsing the medicines you typed...");
 
-function handleWindowScroll(forceVisible) {
-  updateHeaderMotion(Boolean(forceVisible));
-  updateActiveNav();
-  applyParallax();
-}
+  try {
+    const response = await fetch("/api/medicines", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ text: cleanedText }),
+    });
+    const data = await response.json();
 
-function updateHeaderMotion(forceVisible) {
-  const currentY = window.scrollY || 0;
-  const scrollingDown = currentY > STATE.lastScrollY + 4;
-  const shouldHide = !forceVisible && currentY > 150 && scrollingDown;
+    if (!response.ok || data.error) {
+      throw new Error(data.error || "Could not parse manual medicines.");
+    }
 
-  elements.header.classList.toggle("is-scrolled", currentY > 18);
-  elements.header.classList.toggle("is-hidden", shouldHide && currentY > 36);
+    const medicines = normaliseMedicines(data.medicines, "Manual entry");
+    if (!medicines.length) {
+      throw new Error("No medicines were found in the typed text.");
+    }
 
-  if (currentY < 30) {
-    elements.header.classList.remove("is-hidden");
+    STATE.medicines = medicines;
+    STATE.results = [];
+    renderMedicines(medicineList, findBtn);
+    renderResults(resultsList);
+    setStatus(statusBanner, "success", `Loaded ${medicines.length} medicine${medicines.length > 1 ? "s" : ""} from typed text.`);
+  } catch (error) {
+    setStatus(statusBanner, "error", error.message);
   }
-
-  STATE.lastScrollY = currentY;
 }
 
-function applyParallax() {
-  if (STATE.reduceMotion) {
+async function runFinder(addressInput, statusBanner, resultsList) {
+  const selectedMedicines = STATE.medicines.filter((medicine) => medicine.selected).map((medicine) => medicine.name);
+  if (!selectedMedicines.length) {
+    setStatus(statusBanner, "error", "Select at least one medicine before searching.");
     return;
   }
 
-  const currentY = window.scrollY || 0;
-  elements.parallaxNodes.forEach((node) => {
-    const rate = Number(node.dataset.parallax || 0);
-    node.style.transform = `translate3d(0, ${Math.round(currentY * rate)}px, 0)`;
-  });
+  const address = addressInput ? addressInput.value.trim() : "";
+  setStatus(statusBanner, "loading", "Ranking nearby pharmacies for the current medicine list...");
+
+  try {
+    const response = await fetch("/api/rank", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({
+        medicines: selectedMedicines,
+        address,
+      }),
+    });
+    const data = await response.json();
+
+    if (!response.ok || data.error) {
+      throw new Error(data.error || "Could not rank pharmacies.");
+    }
+
+    STATE.results = data.pharmacies || [];
+    renderResults(resultsList);
+
+    if (!STATE.results.length) {
+      setStatus(statusBanner, "error", "No pharmacies were returned for this search.");
+      return;
+    }
+
+    const locationLabel = data.location && data.location.resolved_label ? data.location.resolved_label : "your area";
+    const locationNote = data.location && data.location.used_default && address
+      ? ` Address not matched exactly, so the Delhi sample area was used.`
+      : "";
+
+    setStatus(
+      statusBanner,
+      "success",
+      `Showing ${STATE.results.length} pharmacies near ${locationLabel}.${locationNote}`
+    );
+  } catch (error) {
+    setStatus(statusBanner, "error", error.message);
+  }
 }
 
-function setAuthMode(mode) {
-  STATE.authMode = mode === "register" ? "register" : "login";
-
-  elements.authTabs.forEach((tab) => {
-    tab.classList.toggle("active", tab.dataset.authMode === STATE.authMode);
-  });
-
-  elements.authNameField.classList.toggle("hidden", STATE.authMode !== "register");
-  elements.authSubmitBtn.textContent = STATE.authMode === "register" ? "Register" : "Login";
-  elements.authFeedback.textContent =
-    STATE.authMode === "register"
-      ? "Create a local account session for this browser."
-      : "Sign in locally to simulate the account flow.";
-}
-
-function hydrateAuthState() {
-  const user = readStoredUser();
-
-  if (!user) {
-    elements.authPill.textContent = "Guest mode";
-    elements.authStateCopy.textContent = "You are browsing in guest mode.";
-    elements.lookupStatusCopy.textContent =
-      "Login is optional right now. Your public pharmacy search already works without it.";
-    elements.logoutBtn.classList.add("hidden");
+function renderMedicines(medicineList, findBtn) {
+  if (!medicineList || !findBtn) {
     return;
   }
 
-  elements.authPill.textContent = `Logged in: ${user.name}`;
-  elements.authStateCopy.textContent = `${user.name} is signed in locally with ${user.email}.`;
-  elements.lookupStatusCopy.textContent =
-    "A local user session is active. This is where account-based medication tools can be added next.";
-  elements.logoutBtn.classList.remove("hidden");
+  if (!STATE.medicines.length) {
+    medicineList.innerHTML = '<div class="empty-block">Your selected medicines will appear here.</div>';
+    findBtn.disabled = true;
+    return;
+  }
+
+  medicineList.innerHTML = STATE.medicines.map((medicine, index) => {
+    const selectedClass = medicine.selected ? "selected" : "";
+    return `
+      <button type="button" class="medicine-item ${selectedClass}" data-medicine-index="${index}">
+        <span class="medicine-toggle">${medicine.selected ? "&#10003;" : ""}</span>
+        <span>
+          <strong>${escapeHtml(medicine.name)}</strong>
+          <span class="medicine-meta">${escapeHtml(medicine.dose)} | ${escapeHtml(medicine.frequency)}</span>
+        </span>
+        <span class="medicine-origin">${escapeHtml(medicine.source)}</span>
+      </button>
+    `;
+  }).join("");
+
+  findBtn.disabled = !STATE.medicines.some((medicine) => medicine.selected);
+}
+
+function renderResults(resultsList) {
+  if (!resultsList) {
+    return;
+  }
+
+  if (!STATE.results.length) {
+    resultsList.innerHTML = '<div class="empty-block">No pharmacy results yet.</div>';
+    return;
+  }
+
+  resultsList.innerHTML = STATE.results.map((pharmacy, index) => {
+    const reliability = pharmacy.factor_scores && pharmacy.factor_scores.reliability
+      ? `${pharmacy.factor_scores.reliability}%`
+      : "N/A";
+    const hours = pharmacy.factor_scores && pharmacy.factor_scores.hours
+      ? pharmacy.factor_scores.hours
+      : "Hours unavailable";
+    const medicineMatches = (pharmacy.medicines || []).map((medicine) => {
+      return `
+        <span class="stock-chip ${escapeHtml(medicine.stock_label)}">
+          ${escapeHtml(medicine.medicine)}: ${escapeHtml(medicine.stock_label)}
+        </span>
+      `;
+    }).join("");
+
+    return `
+      <article class="result-card">
+        <div class="result-top">
+          <div>
+            <h3>${index + 1}. ${escapeHtml(pharmacy.name)}</h3>
+            <p class="result-address">${escapeHtml(pharmacy.address || "Address not available")}</p>
+            <p class="result-note">📞 ${escapeHtml(pharmacy.phone || "No phone listed")} | 🕒 ${escapeHtml(hours)}</p>
+          </div>
+          <div class="result-score">
+            <strong>${escapeHtml(String(pharmacy.score))}%</strong>
+            <span>match</span>
+          </div>
+        </div>
+        <div class="result-metrics">
+          <span class="metric-chip">${escapeHtml(String(pharmacy.distance_km))} km away</span>
+          <span class="metric-chip">${escapeHtml(String(pharmacy.coverage_pct))}% medicine coverage</span>
+          <span class="metric-chip">Reliability ${escapeHtml(reliability)}</span>
+          <span class="metric-chip">${escapeHtml(hours)}</span>
+        </div>
+        <div class="result-match-list">${medicineMatches}</div>
+      </article>
+    `;
+  }).join("");
+}
+
+function setStatus(statusBanner, type, message) {
+  statusBanner.className = `status-banner ${type}`;
+  statusBanner.textContent = message;
+}
+
+function normaliseMedicines(medicines, source) {
+  return (medicines || []).map((medicine) => ({
+    name: medicine.name || "Unknown medicine",
+    dose: medicine.dose || "As directed",
+    frequency: medicine.frequency || "As directed",
+    source,
+    selected: medicine.selected !== false,
+  }));
 }
 
 function readStoredUser() {
@@ -349,300 +512,6 @@ function readStoredUser() {
     localStorage.removeItem(AUTH_STORAGE_KEY);
     return null;
   }
-}
-
-function setSearchMode(mode) {
-  STATE.searchMode = mode === "manual" ? "manual" : "upload";
-
-  elements.modeButtons.forEach((button) => {
-    button.classList.toggle("active", button.dataset.mode === STATE.searchMode);
-  });
-
-  elements.uploadPanel.classList.toggle("active", STATE.searchMode === "upload");
-  elements.manualPanel.classList.toggle("active", STATE.searchMode === "manual");
-}
-
-async function uploadPrescription(file) {
-  const formData = new FormData();
-  formData.append("file", file);
-
-  elements.uploadHelper.textContent = `Selected file: ${file.name}`;
-  setStatus("loading", "Reading the uploaded prescription and extracting medicines...");
-
-  try {
-    const response = await fetch("/api/ocr", {
-      method: "POST",
-      body: formData,
-    });
-
-    const data = await response.json();
-    if (!response.ok || data.error) {
-      throw new Error(data.error || "Upload failed.");
-    }
-
-    const medicines = normaliseMedicines(data.medicines, "Upload OCR");
-    if (!medicines.length) {
-      throw new Error("No medicines were detected in that file.");
-    }
-
-    STATE.medicines = medicines;
-    STATE.results = [];
-    renderMedicines();
-    renderResults();
-    setStatus("success", `Found ${medicines.length} medicine${medicines.length > 1 ? "s" : ""} from ${file.name}.`);
-  } catch (error) {
-    setStatus("error", error.message);
-  }
-}
-
-async function parseManualMedicines() {
-  const text = elements.manualInput.value.trim();
-  if (!text) {
-    setStatus("error", "Type at least one medicine before running manual search.");
-    return;
-  }
-
-  setStatus("loading", "Parsing the medicines you typed...");
-
-  try {
-    const response = await fetch("/api/medicines", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({ text }),
-    });
-
-    const data = await response.json();
-    if (!response.ok || data.error) {
-      throw new Error(data.error || "Could not parse manual medicines.");
-    }
-
-    const medicines = normaliseMedicines(data.medicines, "Manual entry");
-    if (!medicines.length) {
-      throw new Error("No medicines were found in the typed text.");
-    }
-
-    STATE.medicines = medicines;
-    STATE.results = [];
-    renderMedicines();
-    renderResults();
-    setStatus("success", `Loaded ${medicines.length} medicine${medicines.length > 1 ? "s" : ""} from typed text.`);
-  } catch (error) {
-    setStatus("error", error.message);
-  }
-}
-
-function normaliseMedicines(medicines, source) {
-  return (medicines || []).map((medicine) => ({
-    name: medicine.name || "Unknown medicine",
-    dose: medicine.dose || "As directed",
-    frequency: medicine.frequency || "As directed",
-    source,
-    selected: medicine.selected !== false,
-  }));
-}
-
-function renderMedicines() {
-  if (!STATE.medicines.length) {
-    elements.medicineList.innerHTML = '<div class="empty-block">Your selected medicines will appear here.</div>';
-    updateFindButton();
-    return;
-  }
-
-  elements.medicineList.innerHTML = STATE.medicines
-    .map((medicine, index) => {
-      const selectedClass = medicine.selected ? "selected" : "";
-      return `
-        <button type="button" class="medicine-item ${selectedClass}" data-medicine-index="${index}">
-          <span class="medicine-toggle">${medicine.selected ? "&#10003;" : ""}</span>
-          <span>
-            <strong>${escapeHtml(medicine.name)}</strong>
-            <span class="medicine-meta">${escapeHtml(medicine.dose)} | ${escapeHtml(medicine.frequency)}</span>
-          </span>
-          <span class="medicine-origin">${escapeHtml(medicine.source)}</span>
-        </button>
-      `;
-    })
-    .join("");
-
-  updateFindButton();
-}
-
-function updateFindButton() {
-  const hasSelection = STATE.medicines.some((medicine) => medicine.selected);
-  elements.findBtn.disabled = !hasSelection;
-}
-
-async function runPharmacyFinder() {
-  const selectedMedicines = STATE.medicines
-    .filter((medicine) => medicine.selected)
-    .map((medicine) => medicine.name);
-
-  if (!selectedMedicines.length) {
-    setStatus("error", "Select at least one medicine before searching.");
-    return;
-  }
-
-  const lat = Number(elements.latInput.value);
-  const lng = Number(elements.lngInput.value);
-
-  setStatus("loading", "Ranking nearby pharmacies for the current medicine list...");
-
-  try {
-    const response = await fetch("/api/rank", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify({
-        medicines: selectedMedicines,
-        lat: Number.isFinite(lat) ? lat : undefined,
-        lng: Number.isFinite(lng) ? lng : undefined,
-      }),
-    });
-
-    const data = await response.json();
-    if (!response.ok || data.error) {
-      throw new Error(data.error || "Could not rank pharmacies.");
-    }
-
-    STATE.results = data.pharmacies || [];
-    renderResults();
-
-    if (!STATE.results.length) {
-      setStatus("error", "No pharmacies were returned for this search.");
-      return;
-    }
-
-    setStatus(
-      "success",
-      `Ranked ${STATE.results.length} pharmacies for ${selectedMedicines.length} selected medicine${selectedMedicines.length > 1 ? "s" : ""}.`
-    );
-  } catch (error) {
-    setStatus("error", error.message);
-  }
-}
-
-function renderResults() {
-  if (!STATE.results.length) {
-    elements.resultsList.innerHTML = '<div class="empty-block">No pharmacy results yet.</div>';
-    return;
-  }
-
-  elements.resultsList.innerHTML = STATE.results
-    .map((pharmacy, index) => {
-      const reliability = pharmacy.factor_scores && pharmacy.factor_scores.reliability
-        ? `${pharmacy.factor_scores.reliability}%`
-        : "N/A";
-      const hours = pharmacy.factor_scores && pharmacy.factor_scores.hours
-        ? pharmacy.factor_scores.hours
-        : "Hours unavailable";
-      const medicineMatches = (pharmacy.medicines || [])
-        .map((medicine) => {
-          return `
-            <span class="stock-chip ${escapeHtml(medicine.stock_label)}">
-              ${escapeHtml(medicine.medicine)}: ${escapeHtml(medicine.stock_label)}
-            </span>
-          `;
-        })
-        .join("");
-
-      return `
-        <article class="result-card">
-          <div class="result-top">
-            <div>
-              <h4>${index + 1}. ${escapeHtml(pharmacy.name)}</h4>
-              <p class="result-address">${escapeHtml(pharmacy.address || "Address not available")}</p>
-              <p class="result-note">${escapeHtml(pharmacy.phone || "No phone listed")} | ${pharmacy.is_24h ? "24h" : "Limited hours"}</p>
-            </div>
-            <div class="result-score">
-              <strong>${escapeHtml(String(pharmacy.score))}%</strong>
-              <span>match</span>
-            </div>
-          </div>
-          <div class="result-metrics">
-            <span class="metric-chip">${escapeHtml(String(pharmacy.distance_km))} km away</span>
-            <span class="metric-chip">${escapeHtml(String(pharmacy.coverage_pct))}% medicine coverage</span>
-            <span class="metric-chip">Reliability ${escapeHtml(reliability)}</span>
-            <span class="metric-chip">${escapeHtml(hours)}</span>
-          </div>
-          <div class="result-match-list">${medicineMatches}</div>
-        </article>
-      `;
-    })
-    .join("");
-}
-
-function useCurrentLocation() {
-  if (!navigator.geolocation) {
-    setStatus("error", "Geolocation is not available in this browser.");
-    return;
-  }
-
-  setStatus("loading", "Trying to get your current location...");
-
-  navigator.geolocation.getCurrentPosition(
-    (position) => {
-      elements.latInput.value = position.coords.latitude.toFixed(6);
-      elements.lngInput.value = position.coords.longitude.toFixed(6);
-      setStatus("success", "Current location added to the search.");
-    },
-    () => {
-      setStatus("error", "Could not access your current location. The default coordinates are still available.");
-    },
-    {
-      enableHighAccuracy: true,
-      timeout: 10000,
-      maximumAge: 0,
-    }
-  );
-}
-
-function setStatus(type, message) {
-  elements.statusBanner.className = `status-banner ${type}`;
-  elements.statusBanner.textContent = message;
-}
-
-function scrollToSection(id) {
-  const element = document.getElementById(id);
-  if (!element) {
-    return;
-  }
-
-  const headerOffset = (elements.header ? elements.header.offsetHeight : 0) + 28;
-  const targetTop = element.getBoundingClientRect().top + window.scrollY - headerOffset;
-  window.scrollTo({
-    top: Math.max(targetTop, 0),
-    behavior: STATE.reduceMotion ? "auto" : "smooth",
-  });
-
-  setActiveNavLink(id);
-}
-
-function updateActiveNav() {
-  const headerOffset = elements.header ? elements.header.offsetHeight : 0;
-  const marker = window.scrollY + headerOffset + 80;
-  let activeId = "overview";
-
-  sections.forEach((section) => {
-    if (!section.element) {
-      return;
-    }
-
-    const top = section.element.offsetTop;
-    if (marker >= top) {
-      activeId = section.id;
-    }
-  });
-
-  setActiveNavLink(activeId);
-}
-
-function setActiveNavLink(activeId) {
-  elements.navLinks.forEach((link) => {
-    link.classList.toggle("active", link.dataset.target === activeId);
-  });
 }
 
 function escapeHtml(value) {

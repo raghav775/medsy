@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Medsy</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="{{ page_class }}">
+
+  <header class="site-header">
+    <div class="header-inner">
+      <a href="{{ url_for('overview') }}" class="brand">Medsy</a>
+
+      <nav class="site-nav" aria-label="Primary navigation">
+        <a class="nav-link {% if active_page == 'overview' %}active{% endif %}" href="{{ url_for('overview') }}">Overview</a>
+        <a class="nav-link {% if active_page == 'finder' %}active{% endif %}" href="{{ url_for('pharmacy_finder') }}">Pharmacy Finder</a>
+        <a class="nav-link {% if active_page == 'lookup' %}active{% endif %}" href="{{ url_for('medication_lookup') }}">Medication Lookup</a>
+        <a class="nav-link {% if active_page == 'contact' %}active{% endif %}" href="{{ url_for('contact') }}">Contact</a>
+      </nav>
+
+      <div class="header-actions">
+        <span class="session-pill" id="auth-pill">Guest mode</span>
+        <a class="header-link {% if active_page == 'login' %}active{% endif %}" href="{{ url_for('login') }}">Login</a>
+        <a class="header-link {% if active_page == 'register' %}active{% endif %}" href="{{ url_for('register') }}">Register</a>
+        <a class="primary-link" href="{{ url_for('pharmacy_finder') }}">Start Search</a>
+      </div>
+    </div>
+  </header>
+
+  <main class="page-shell">
+    {% block content %}{% endblock %}
+  </main>
+
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

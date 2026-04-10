@@ -18,7 +18,20 @@ app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024
 ALLOWED_EXTENSIONS = {"pdf", "png", "jpg", "jpeg", "txt", "docx", "doc"}
 DEFAULT_LAT = 28.5733
 DEFAULT_LNG = 77.2236
+DEFAULT_LOCATION_LABEL = "New Delhi"
 MANUAL_SPLIT_RE = re.compile(r"[\n,;]+")
+
+LOCATION_PRESETS = [
+    (("lajpat", "lajpat nagar"), (28.5672, 77.2360), "Lajpat Nagar, New Delhi"),
+    (("greater kailash", "gk", "gk1", "gk 1"), (28.5494, 77.2341), "Greater Kailash, New Delhi"),
+    (("saket",), (28.5245, 77.2066), "Saket, New Delhi"),
+    (("nehru place",), (28.5491, 77.2523), "Nehru Place, New Delhi"),
+    (("south ex", "south extension"), (28.5732, 77.2208), "South Extension, New Delhi"),
+    (("hauz khas",), (28.5494, 77.2001), "Hauz Khas, New Delhi"),
+    (("gurugram", "gurgaon"), (28.4595, 77.0266), "Gurugram"),
+    (("noida",), (28.5355, 77.3910), "Noida"),
+    (("delhi", "new delhi"), (28.6139, 77.2090), "New Delhi"),
+]
 
 os.makedirs(app.config["UPLOAD_FOLDER"], exist_ok=True)
 
@@ -32,6 +45,15 @@ def safe_float(value, fallback):
         return float(value)
     except (TypeError, ValueError):
         return fallback
+
+
+def render_page(template_name, active_page, **context):
+    return render_template(
+        template_name,
+        active_page=active_page,
+        page_class=f"page-{active_page}",
+        **context,
+    )
 
 
 def medicines_from_text(text):
@@ -70,9 +92,81 @@ def medicines_from_text(text):
     return medicines
 
 
+def resolve_search_location(address):
+    cleaned = (address or "").strip()
+    if not cleaned:
+        return {
+            "lat": DEFAULT_LAT,
+            "lng": DEFAULT_LNG,
+            "resolved_label": DEFAULT_LOCATION_LABEL,
+            "used_default": True,
+        }
+
+    lowered = cleaned.lower()
+    for keywords, coords, label in LOCATION_PRESETS:
+        if any(keyword in lowered for keyword in keywords):
+            return {
+                "lat": coords[0],
+                "lng": coords[1],
+                "resolved_label": label,
+                "used_default": False,
+            }
+
+    return {
+        "lat": DEFAULT_LAT,
+        "lng": DEFAULT_LNG,
+        "resolved_label": f"{DEFAULT_LOCATION_LABEL} sample area",
+        "used_default": True,
+    }
+
+
 @app.route("/")
-def index():
-    return render_template("index.html")
+@app.route("/overview")
+def overview():
+    return render_page("overview.html", "overview")
+
+
+@app.route("/pharmacy-finder")
+def pharmacy_finder():
+    known_meds = set()
+    from engine.probability import PHARMACIES
+    for ph in PHARMACIES:
+        known_meds.update(ph.get("inventory", {}).keys())
+    return render_page("pharmacy_finder.html", "finder", known_medicines=sorted(list(known_meds)))
+
+
+@app.route("/medication-lookup")
+def medication_lookup():
+    return render_page("medication_lookup.html", "lookup")
+
+
+@app.route("/contact")
+def contact():
+    return render_page("contact.html", "contact")
+
+
+@app.route("/login")
+def login():
+    return render_page(
+        "auth.html",
+        "login",
+        auth_mode="login",
+        auth_title="Login to Medsy",
+        auth_description="Use a cleaner account page for saved tools and future private medication features.",
+        auth_button_label="Login",
+    )
+
+
+@app.route("/register")
+def register():
+    return render_page(
+        "auth.html",
+        "register",
+        auth_mode="register",
+        auth_title="Create your Medsy account",
+        auth_description="Set up the account path separately while keeping the Pharmacy Finder public.",
+        auth_button_label="Register",
+    )
 
 
 @app.route("/api/medicines", methods=["POST"])
@@ -87,7 +181,30 @@ def parse_manual_medicines():
     if not medicines:
         return jsonify({"error": "No medicines could be parsed from that text."}), 400
 
-    return jsonify({"medicines": medicines})
+    known_meds = set()
+    from engine.probability import PHARMACIES
+    for ph in PHARMACIES:
+        known_meds.update(ph.get("inventory", {}).keys())
+
+    invalid_meds = []
+    valid_meds = []
+
+    for med in medicines:
+        name_lower = med["name"].lower().strip()
+        is_known = False
+        for k in known_meds:
+            if name_lower in k or k in name_lower:
+                is_known = True
+                break
+        if is_known:
+            valid_meds.append(med)
+        else:
+            invalid_meds.append(med["name"])
+
+    if invalid_meds:
+        return jsonify({"error": f"Outright medicine not found: {', '.join(invalid_meds)}. Fake results are not allowed."}), 400
+
+    return jsonify({"medicines": valid_meds})
 
 
 @app.route("/api/ocr", methods=["POST"])
@@ -120,14 +237,28 @@ def ocr_pharmacy_finder():
 def rank():
     data = request.get_json(silent=True) or {}
     selected = [str(item).strip() for item in data.get("medicines", []) if str(item).strip()]
-    user_lat = safe_float(data.get("lat"), DEFAULT_LAT)
-    user_lng = safe_float(data.get("lng"), DEFAULT_LNG)
+    address = (data.get("address") or "").strip()
+    manual_lat = safe_float(data.get("lat"), None)
+    manual_lng = safe_float(data.get("lng"), None)
 
     if not selected:
         return jsonify({"error": "No medicines selected."}), 400
 
+    location = resolve_search_location(address)
+    user_lat = manual_lat if manual_lat is not None else location["lat"]
+    user_lng = manual_lng if manual_lng is not None else location["lng"]
+
     results = rank_pharmacies(selected, user_lat, user_lng)
-    return jsonify({"pharmacies": results})
+    return jsonify(
+        {
+            "pharmacies": results,
+            "location": {
+                "query": address,
+                "resolved_label": location["resolved_label"],
+                "used_default": location["used_default"],
+            },
+        }
+    )
 
 
 if __name__ == "__main__":

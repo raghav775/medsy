@@ -1,0 +1,66 @@
+{% extends "base.html" %}
+
+{% block content %}
+<section class="page-grid">
+  <article class="panel hero-panel">
+    <p class="eyebrow">Public Access &middot; Emergency-First</p>
+    <h1>Start with the nearby pharmacies most practical to call.</h1>
+    <p class="lead">
+      Use Medsy to shortlist nearby pharmacies fast. In an emergency, you do not need to log in. Upload a prescription or type the medicines yourself and search right away.
+    </p>
+
+    <div class="button-row">
+      <a class="primary-link" href="{{ url_for('pharmacy_finder') }}">Open Pharmacy Finder</a>
+      <a class="secondary-link" href="{{ url_for('login') }}">Login for saved access</a>
+    </div>
+  </article>
+
+  <article class="panel side-panel">
+    <p class="eyebrow">Use it to make the next step smaller</p>
+    <h2>Search first, then decide what to do next.</h2>
+    <div class="step-list">
+      <div class="step-item">
+        <div class="step-number">1</div>
+        <div class="step-content">
+          <h3>Open the public finder immediately</h3>
+          <p>No login gate for emergency searches. The pharmacy finder stays available from the landing page.</p>
+        </div>
+      </div>
+      <div class="step-item">
+        <div class="step-number">2</div>
+        <div class="step-content">
+          <h3>Upload or type medicines manually</h3>
+          <p>Use OCR when you have a prescription file, or paste medicine names directly when speed matters more.</p>
+        </div>
+      </div>
+      <div class="step-item">
+        <div class="step-number">3</div>
+        <div class="step-content">
+          <h3>Confirm the final answer by calling</h3>
+          <p>Medsy helps you shortlist the best pharmacy to call first, but stock and timing should still be confirmed.</p>
+        </div>
+      </div>
+    </div>
+  </article>
+</section>
+
+<section class="simple-grid-three">
+  <article class="compact-panel">
+    <p class="small-label">Pharmacy Finder</p>
+    <h3>Public and immediate</h3>
+    <p class="helper-text">Use this page when the main question is which pharmacy to call first.</p>
+  </article>
+
+  <article class="compact-panel">
+    <p class="small-label">Medication Lookup</p>
+    <h3>Separate and quieter</h3>
+    <p class="helper-text">Use this page later for saved medication tools and longer-term account features.</p>
+  </article>
+
+  <article class="compact-panel">
+    <p class="small-label">Contact</p>
+    <h3>Short and clear</h3>
+    <p class="helper-text">Keep support copy simple and grounded in how the product works in real life.</p>
+  </article>
+</section>
+{% endblock %}

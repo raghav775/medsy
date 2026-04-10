@@ -15,8 +15,9 @@ PHARMACIES = [
         "lat": 28.5672,
         "lng": 77.2360,
         "reliability": 0.93,
-        "is_24h": True,
-        "phone": "+91-11-2983-1111",
+        "is_24h": False,
+        "phone": "040-6700-6700",
+        "operating_hours": "9:00 AM - 10:00 PM",
         "specialties": ["general", "neurology", "cardiology"],
         "inventory": {
             "levetiracetam": 0.9,
@@ -50,7 +51,8 @@ PHARMACIES = [
         "lng": 77.2341,
         "reliability": 0.91,
         "is_24h": True,
-        "phone": "+91-11-2643-2222",
+        "phone": "1860-500-0101",
+        "operating_hours": "Open 24/7",
         "specialties": ["general", "oncology", "diabetes", "cardiac"],
         "inventory": {
             "levetiracetam": 0.6,
@@ -84,7 +86,8 @@ PHARMACIES = [
         "lng": 77.2066,
         "reliability": 0.88,
         "is_24h": False,
-        "phone": "+91-11-4100-3333",
+        "phone": "0124-416-6666",
+        "operating_hours": "8:00 AM - 10:00 PM",
         "specialties": ["general", "wellness", "vitamins"],
         "inventory": {
             "folic acid": 1.0,
@@ -117,7 +120,8 @@ PHARMACIES = [
         "lng": 77.2523,
         "reliability": 0.82,
         "is_24h": False,
-        "phone": "+91-11-2646-4444",
+        "phone": "1800-180-8080",
+        "operating_hours": "10:00 AM - 8:00 PM",
         "specialties": ["general", "generic"],
         "inventory": {
             "paracetamol": 1.0,
@@ -143,8 +147,9 @@ PHARMACIES = [
         "lat": 28.5732,
         "lng": 77.2208,
         "reliability": 0.87,
-        "is_24h": False,
-        "phone": "+91-11-2462-5555",
+        "is_24h": True,
+        "phone": "1800-209-4400",
+        "operating_hours": "Open 24/7",
         "specialties": ["general", "neurology", "psychiatry"],
         "inventory": {
             "levetiracetam": 0.85,
@@ -171,8 +176,9 @@ PHARMACIES = [
         "lat": 28.5494,
         "lng": 77.2001,
         "reliability": 0.89,
-        "is_24h": True,
-        "phone": "+91-11-2686-6666",
+        "is_24h": False,
+        "phone": "+91-9205780424",
+        "operating_hours": "08:00 AM - 10:00 PM",
         "specialties": ["general", "cardiac", "diabetes", "respiratory"],
         "inventory": {
             "metformin": 1.0,
@@ -200,12 +206,12 @@ PHARMACIES = [
 ]
 
 WEIGHTS = {
-    "coverage": 0.40,
-    "availability": 0.20,
-    "distance": 0.20,
-    "reliability": 0.12,
-    "hours": 0.05,
-    "category": 0.03,
+    "coverage": 0.35,
+    "availability": 0.15,
+    "distance": 0.40,
+    "reliability": 0.05,
+    "hours": 0.03,
+    "category": 0.02,
 }
 
 NEURO = {
@@ -260,6 +266,13 @@ CATEGORY_MAP = {
     "respiratory": RESP,
 }
 
+COMMON_MEDS = {
+    "paracetamol", "ibuprofen", "aspirin", "cetirizine", "omeprazole",
+    "vitamin d", "vitamin d3", "calcium", "zinc", "magnesium", "folic acid",
+    "pantoprazole", "amoxicillin", "azithromycin", "multivitamin", "vitamin b12",
+    "dexamethasone", "salbutamol"
+}
+
 
 def _haversine(lat1, lng1, lat2, lng2):
     radius_km = 6371.0
@@ -275,7 +288,7 @@ def _haversine(lat1, lng1, lat2, lng2):
 
 
 def _dist_score(km):
-    return math.exp(-0.35 * km)
+    return math.exp(-0.15 * km)
 
 
 def _stock_label(value):
@@ -335,7 +348,11 @@ def rank_pharmacies(medicines, user_lat, user_lng, max_results=6, max_km=None):
         available_levels = [item["stock_level"] for item in medicine_details if item["available"]]
         average_stock = sum(available_levels) / len(available_levels) if available_levels else 0.0
 
-        score = (
+        common_medicines_count = sum(1 for m in medicines if m.lower() in COMMON_MEDS)
+        common_ratio = common_medicines_count / len(medicines) if medicines else 0
+
+        # Base engine calculation
+        raw_score = (
             WEIGHTS["coverage"] * coverage_ratio
             + WEIGHTS["availability"] * average_stock
             + WEIGHTS["distance"] * _dist_score(km)
@@ -343,6 +360,14 @@ def rank_pharmacies(medicines, user_lat, user_lng, max_results=6, max_km=None):
             + WEIGHTS["hours"] * (1.0 if pharmacy["is_24h"] else 0.0)
             + WEIGHTS["category"] * _category_bonus(pharmacy, medicines)
         )
+
+        # Dynamic common medicine boost logic (to override distance penalization for easily found items)
+        if common_ratio > 0.5 and coverage_ratio >= 0.9:
+            # If the script is predominantly common and the pharmacy stocks it all, 
+            # push the score automatically up to realistic 90-100% bracket based loosely on proximity.
+            score = 0.90 + (0.09 * _dist_score(km))
+        else:
+            score = raw_score
 
         results.append(
             {
@@ -362,7 +387,7 @@ def rank_pharmacies(medicines, user_lat, user_lng, max_results=6, max_km=None):
                     "availability": round(average_stock * 100, 1),
                     "distance": round(_dist_score(km) * 100, 1),
                     "reliability": round(pharmacy["reliability"] * 100, 1),
-                    "hours": "24h" if pharmacy["is_24h"] else "Limited",
+                    "hours": pharmacy.get("operating_hours", "Open 24/7" if pharmacy.get("is_24h") else "Limited hours"),
                 },
             }
         )
