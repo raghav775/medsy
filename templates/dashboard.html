@@ -1,0 +1,268 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Medsy — Dashboard</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body class="page-dashboard">
+
+<div class="dash-layout">
+
+  <!-- ── Sidebar ────────────────────────────────────────────── -->
+  <aside class="dash-sidebar">
+    <a href="{{ url_for('overview') }}" class="dash-brand">Medsy</a>
+
+    <div class="dash-user-card" id="dash-user-card">
+      <div class="dash-avatar" id="dash-avatar">?</div>
+      <div class="dash-user-info">
+        <h4 id="dash-user-name">Loading…</h4>
+        <p  id="dash-user-email"></p>
+      </div>
+    </div>
+
+    <nav class="dash-nav" id="dash-nav">
+      <button class="dash-tab active" data-tab="overview">
+        <span class="tab-icon">◉</span>Overview
+      </button>
+      <button class="dash-tab" data-tab="history">
+        <span class="tab-icon">◷</span>Medicine History
+      </button>
+      <button class="dash-tab" data-tab="records">
+        <span class="tab-icon">◻</span>Records Library
+      </button>
+      <button class="dash-tab" data-tab="finder">
+        <span class="tab-icon">◎</span>Pharmacy Finder
+      </button>
+    </nav>
+
+    <div class="dash-sidebar-footer">
+      <a href="{{ url_for('overview') }}" class="text-btn" style="text-align:left;">← Back to site</a>
+      <button class="secondary-button" id="dash-logout-btn" style="width:100%;">Sign out</button>
+    </div>
+  </aside>
+
+  <!-- ── Main content ───────────────────────────────────────── -->
+  <div class="dash-content">
+
+    <!-- Overview -->
+    <section class="dash-pane active" id="pane-overview">
+      <div class="dash-page-head">
+        <h1 id="overview-greeting">Welcome back</h1>
+        <p class="lead" style="margin:0; font-size:1rem;">Your personal health command center.</p>
+      </div>
+
+      <div class="dash-stats-row">
+        <div class="stat-card">
+          <span class="stat-value" id="stat-searches">0</span>
+          <span class="stat-label">Searches</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-value" id="stat-meds">0</span>
+          <span class="stat-label">Unique Medicines</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-value" id="stat-records">0</span>
+          <span class="stat-label">Records Saved</span>
+        </div>
+      </div>
+
+      <div class="dash-section">
+        <div class="dash-section-head">
+          <h2>Recent searches</h2>
+          <button class="text-btn" onclick="window._switchDashTab('history')">View all →</button>
+        </div>
+        <div id="overview-recent-list" class="history-list">
+          <div class="empty-block">No searches yet. Use the Pharmacy Finder tab to get started.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Medicine History -->
+    <section class="dash-pane" id="pane-history">
+      <div class="dash-page-head">
+        <h1>Medicine History</h1>
+        <p class="lead" style="margin:0; font-size:1rem;">All your pharmacy searches with full medicine lists and timestamps.</p>
+      </div>
+      <div id="history-list" class="history-list">
+        <div class="empty-block">No history yet. Run a pharmacy search to see it here.</div>
+      </div>
+    </section>
+
+    <!-- Records Library -->
+    <section class="dash-pane" id="pane-records">
+      <div class="dash-page-head">
+        <h1>Records Library</h1>
+        <p class="lead" style="margin:0; font-size:1rem;">
+          Store prescriptions, lab reports, and scans privately in your browser.
+          Files are saved locally and never uploaded to a server.
+        </p>
+      </div>
+
+      <div class="records-upload-zone" id="records-drop-zone">
+        <input type="file" id="records-file-input"
+               accept=".pdf,.png,.jpg,.jpeg,.docx,.txt"
+               hidden multiple>
+        <div class="drop-icon" style="padding:10px 22px;">+ Add File</div>
+        <strong>Drop files here or click to upload</strong>
+        <span>PDF · JPG · PNG · DOCX · TXT &nbsp;|&nbsp; Max 1.5 MB per file</span>
+        <div class="records-category-row" onclick="event.stopPropagation()">
+          <label for="records-category">Category:</label>
+          <select id="records-category">
+            <option value="prescription">Prescription</option>
+            <option value="lab_report">Lab Report</option>
+            <option value="scan">Scan / X-Ray</option>
+            <option value="discharge">Discharge Summary</option>
+            <option value="other">Other</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="dash-section">
+        <div class="dash-section-head">
+          <h2>Your files</h2>
+          <span class="helper-text" id="records-count">0 files</span>
+        </div>
+        <div id="records-grid" class="records-grid">
+          <div class="empty-block" style="grid-column:1/-1">No records uploaded yet.</div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Pharmacy Finder (embedded) -->
+    <section class="dash-pane" id="pane-finder">
+      <div class="dash-page-head">
+        <h1>Pharmacy Finder</h1>
+        <p class="lead" style="margin:0; font-size:1rem;">Upload a prescription or type medicines to find and rank nearby pharmacies.</p>
+      </div>
+
+      <section class="finder-layout">
+        <article class="panel finder-panel">
+          <div class="mode-toggle" role="tablist">
+            <button type="button" class="mode-btn active" data-mode="upload">Upload Prescription</button>
+            <button type="button" class="mode-btn"        data-mode="manual">Type Medicines</button>
+          </div>
+
+          <div class="mode-panel active" id="upload-panel">
+            <label for="rx-file" class="drop-zone" id="rx-drop-zone">
+              <input type="file" id="rx-file"
+                     accept=".pdf,.png,.jpg,.jpeg,.docx,.doc,.txt" hidden>
+              <span class="drop-icon">Upload</span>
+              <strong>Drop a prescription here or click to choose</strong>
+              <span>PDF · JPG · PNG · DOCX · TXT</span>
+            </label>
+            <p class="helper-text" id="upload-helper">No file selected yet.</p>
+          </div>
+
+          <div class="mode-panel" id="manual-panel">
+            <label class="field-label" for="manual-auto-input">Search for a medication</label>
+            <div class="button-row-tight" style="display:flex;gap:8px;margin-top:4px;">
+              <input type="text" id="manual-auto-input"
+                     list="medicine-suggestions"
+                     placeholder="e.g. Paracetamol" style="flex:1;">
+              <datalist id="medicine-suggestions">
+                {% for med in known_medicines %}
+                <option value="{{ med|title }}">
+                {% endfor %}
+              </datalist>
+              <button type="button" class="primary-button"
+                      style="padding:10px 24px;" id="add-medicine-btn">Add</button>
+            </div>
+
+            <label class="field-label" for="manual-input" style="margin-top:20px;">
+              Or type / review multiple here
+            </label>
+            <textarea id="manual-input" rows="4" style="margin-top:4px;"
+                      placeholder="Paracetamol 650 mg&#10;Vitamin D3&#10;Amoxicillin 500 mg"></textarea>
+            <div class="button-row-tight" style="margin-top:12px;">
+              <button type="button" class="secondary-link secondary-button"
+                      id="use-manual-btn">Search typed list</button>
+              <button type="button" class="text-btn" id="clear-manual-btn">Clear</button>
+            </div>
+          </div>
+
+          <div class="sub-panel" style="margin-top:20px;">
+            <label class="field-label" for="address-input">Address</label>
+            <input type="text" id="address-input" value="New Delhi"
+                   placeholder="Neighborhood, city, or area">
+            <p class="helper-text">Sample pharmacy data is centred around Delhi NCR.</p>
+          </div>
+        </article>
+
+        <article class="panel results-panel">
+          <div class="results-head">
+            <div>
+              <p class="small-label">Current search</p>
+              <h2>Medicines &amp; pharmacies</h2>
+            </div>
+            <button type="button" class="primary-link primary-button"
+                    id="find-btn" disabled>Find pharmacies</button>
+          </div>
+
+          <div class="status-banner info" id="status-banner">
+            Start by uploading a prescription or typing medicines.
+          </div>
+
+          <div class="results-grid">
+            <div class="sub-panel">
+              <div class="panel-row">
+                <h3>Medicines for this search</h3>
+                <div class="inline-actions">
+                  <button type="button" class="text-btn" id="select-all-btn">Select all</button>
+                  <button type="button" class="text-btn" id="clear-selection-btn">Clear</button>
+                </div>
+              </div>
+              <div id="medicine-list" class="scroll-list">
+                <div class="empty-block">Your selected medicines will appear here.</div>
+              </div>
+            </div>
+
+            <div class="sub-panel">
+              <div class="panel-row">
+                <h3>Nearby pharmacies</h3>
+                <span class="helper-text">Best options to call first</span>
+              </div>
+              <div id="results-list" class="scroll-list">
+                <div class="empty-block">No pharmacy results yet.</div>
+              </div>
+            </div>
+          </div>
+        </article>
+      </section>
+    </section>
+
+  </div><!-- .dash-content -->
+</div><!-- .dash-layout -->
+
+<!-- ── Map overlay ──────────────────────────────────────────── -->
+<div class="map-overlay" id="map-overlay">
+  <div class="map-panel">
+    <div class="map-panel-head">
+      <div class="map-panel-info">
+        <h3 id="map-pharmacy-title">Pharmacy</h3>
+        <p  id="map-pharmacy-addr"  class="helper-text"></p>
+        <p  id="map-pharmacy-meta"  class="helper-text"></p>
+      </div>
+      <button class="map-close-btn" id="map-close-btn">&#x2715; Close</button>
+    </div>
+    <div id="pharmacy-map"></div>
+    <div class="map-actions">
+      <a id="map-gmaps-link" href="#" target="_blank" rel="noopener"
+         class="primary-link primary-button">
+        Open turn-by-turn in Google Maps
+      </a>
+      <span class="helper-text" id="map-distance-info"></span>
+    </div>
+  </div>
+</div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
+<script src="{{ url_for('static', filename='js/app.js') }}"></script>
+<script src="{{ url_for('static', filename='js/dashboard.js') }}"></script>
+</body>
+</html>

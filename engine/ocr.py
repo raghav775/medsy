@@ -113,20 +113,61 @@ FREQUENCY_RE = re.compile(
 )
 
 
+def _configure_tesseract():
+    """Point Tesseract at the local tessdata folder and the installed binary."""
+    import sys
+    import pytesseract
+
+    # Use the eng.traineddata bundled in this project (works without admin rights)
+    project_tessdata = os.path.join(os.path.dirname(os.path.dirname(__file__)), "tessdata")
+    if os.path.isdir(project_tessdata):
+        os.environ["TESSDATA_PREFIX"] = project_tessdata
+
+    if sys.platform != "win32":
+        return
+
+    # Auto-detect the Tesseract binary on Windows
+    if pytesseract.pytesseract.tesseract_cmd in ("tesseract", "tesseract.exe"):
+        win_candidates = [
+            r"C:\Program Files\Tesseract-OCR\tesseract.exe",
+            r"C:\Program Files (x86)\Tesseract-OCR\tesseract.exe",
+            os.path.expanduser(r"~\AppData\Local\Programs\Tesseract-OCR\tesseract.exe"),
+        ]
+        for path in win_candidates:
+            if os.path.exists(path):
+                pytesseract.pytesseract.tesseract_cmd = path
+                break
+
+
 def _ocr_image(filepath):
     try:
         import pytesseract
         from PIL import Image, ImageFilter, ImageEnhance
+    except ImportError:
+        raise RuntimeError(
+            "Missing pytesseract/Pillow. Run:  pip install pytesseract pillow\n"
+            "Then install the Tesseract binary: https://github.com/UB-Mannheim/tesseract/wiki"
+        )
+
+    _configure_tesseract()
+
+    try:
         img = Image.open(filepath).convert('L')
         img = ImageEnhance.Contrast(img).enhance(2.0)
         img = img.filter(ImageFilter.SHARPEN)
         return pytesseract.image_to_string(img, config='--psm 6 --oem 3')
-    except ImportError:
-        raise RuntimeError(
-            "Missing pytesseract/Pillow.\n"
-            "  pip install pytesseract pillow\n"
-            "  Install Tesseract binary: https://github.com/tesseract-ocr/tesseract"
-        )
+    except Exception as exc:
+        msg = str(exc).lower()
+        if "tesseract" in msg and ("not found" in msg or "not installed" in msg or "cannot find" in msg):
+            raise RuntimeError(
+                "Tesseract OCR is not installed or not found on this machine.\n"
+                "Windows: download the installer from "
+                "https://github.com/UB-Mannheim/tesseract/wiki and install it, "
+                "then restart the server.\n"
+                "Linux: sudo apt install tesseract-ocr\n"
+                "macOS: brew install tesseract"
+            )
+        raise RuntimeError(f"Image OCR failed: {exc}")
 
 
 def _extract_pdf(filepath):
@@ -145,13 +186,27 @@ def _extract_pdf(filepath):
         try:
             from pdf2image import convert_from_path
             import pytesseract
-            for img in convert_from_path(filepath, dpi=300):
-                text += pytesseract.image_to_string(img, config='--psm 6 --oem 3') + "\n"
         except ImportError:
             raise RuntimeError(
-                "Scanned PDF: pip install pdf2image pytesseract\n"
-                "  sudo apt install poppler-utils tesseract-ocr"
+                "Scanned PDF requires additional packages.\n"
+                "Run: pip install pdf2image pytesseract\n"
+                "Linux: sudo apt install poppler-utils tesseract-ocr\n"
+                "Windows: install Tesseract from https://github.com/UB-Mannheim/tesseract/wiki "
+                "and Poppler from https://github.com/oschwartz10612/poppler-windows/releases"
             )
+        _configure_tesseract()
+        try:
+            for img in convert_from_path(filepath, dpi=300):
+                text += pytesseract.image_to_string(img, config='--psm 6 --oem 3') + "\n"
+        except Exception as exc:
+            msg = str(exc).lower()
+            if "tesseract" in msg and ("not found" in msg or "not installed" in msg or "cannot find" in msg):
+                raise RuntimeError(
+                    "Tesseract OCR is not installed or not found.\n"
+                    "Windows: https://github.com/UB-Mannheim/tesseract/wiki\n"
+                    "Linux: sudo apt install tesseract-ocr"
+                )
+            raise RuntimeError(f"Scanned PDF OCR failed: {exc}")
     return text
 
 
@@ -217,5 +272,27 @@ def parse_medicines_from_text(text):
     return list(found.values())
 
 
+def extract_lines_from_text(text):
+    """Return all non-trivial lines from OCR output for the user to pick from."""
+    seen = set()
+    lines = []
+    for raw in text.split('\n'):
+        line = raw.strip()
+        # skip blank, too short, or purely numeric/punctuation lines
+        if len(line) < 3:
+            continue
+        if re.match(r'^[\d\s\.\-\:\,\/\(\)]+$', line):
+            continue
+        key = line.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        lines.append(line)
+    return lines
+
+
 def extract_medicines_from_file(filepath):
-    return parse_medicines_from_text(extract_text_from_file(filepath))
+    raw_text = extract_text_from_file(filepath)
+    medicines = parse_medicines_from_text(raw_text)
+    lines = extract_lines_from_text(raw_text)
+    return medicines, lines, raw_text

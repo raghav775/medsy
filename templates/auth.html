@@ -28,17 +28,26 @@
     <form id="auth-form" class="auth-form" data-auth-mode="{{ auth_mode }}">
       <label class="field-label auth-name-field {% if auth_mode != 'register' %}hidden{% endif %}" for="auth-name">
         Full name
-        <input type="text" id="auth-name" placeholder="Raghav Gulati">
+        <input type="text" id="auth-name" placeholder="Raghav Gulati" autocomplete="name">
       </label>
 
       <label class="field-label" for="auth-email">
         Email
-        <input type="email" id="auth-email" placeholder="you@example.com" required>
+        <input type="email" id="auth-email" placeholder="you@example.com" required autocomplete="email">
       </label>
 
       <label class="field-label" for="auth-password">
         Password
-        <input type="password" id="auth-password" placeholder="Enter password" required>
+        <input type="password" id="auth-password" placeholder="Min 8 chars, include a number" required autocomplete="{% if auth_mode == 'register' %}new-password{% else %}current-password{% endif %}">
+      </label>
+      <div class="pw-strength-bar auth-name-field {% if auth_mode != 'register' %}hidden{% endif %}" id="pw-strength-bar">
+        <div class="pw-strength-fill" id="pw-strength-fill"></div>
+      </div>
+      <p class="pw-strength-label helper-text auth-name-field {% if auth_mode != 'register' %}hidden{% endif %}" id="pw-strength-label"></p>
+
+      <label class="field-label auth-name-field {% if auth_mode != 'register' %}hidden{% endif %}" for="auth-confirm-password">
+        Confirm password
+        <input type="password" id="auth-confirm-password" placeholder="Re-enter password" autocomplete="new-password">
       </label>
 
       <button type="submit" class="primary-link primary-button full-width" id="auth-submit-btn">{{ auth_button_label }}</button>

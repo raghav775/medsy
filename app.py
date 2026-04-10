@@ -1,7 +1,7 @@
 import os
 import re
 
-from flask import Flask, jsonify, render_template, request
+from flask import Flask, jsonify, render_template, request, send_file
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
 import requests
@@ -121,6 +121,19 @@ def resolve_search_location(address):
     }
 
 
+TILE_DIR  = os.path.join(os.path.dirname(__file__), "static", "tiles")
+BLANK_TILE = os.path.join(TILE_DIR, "blank.png")
+
+
+@app.route("/tiles/<int:z>/<int:x>/<int:y>.png")
+def serve_tile(z, x, y):
+    tile_path = os.path.join(TILE_DIR, str(z), str(x), f"{y}.png")
+    if os.path.isfile(tile_path):
+        return send_file(tile_path, mimetype="image/png",
+                         max_age=60 * 60 * 24 * 30)
+    return send_file(BLANK_TILE, mimetype="image/png", max_age=0)
+
+
 @app.route("/")
 @app.route("/overview")
 def overview():
@@ -144,6 +157,15 @@ def medication_lookup():
 @app.route("/contact")
 def contact():
     return render_page("contact.html", "contact")
+
+
+@app.route("/dashboard")
+def dashboard():
+    known_meds = set()
+    from engine.probability import PHARMACIES
+    for ph in PHARMACIES:
+        known_meds.update(ph.get("inventory", {}).keys())
+    return render_template("dashboard.html", known_medicines=sorted(list(known_meds)))
 
 
 @app.route("/login")
@@ -226,8 +248,8 @@ def ocr_pharmacy_finder():
     file.save(filepath)
 
     try:
-        medicines = extract_medicines_from_file(filepath)
-        return jsonify({"medicines": medicines, "filename": file.filename})
+        medicines, lines, raw_text = extract_medicines_from_file(filepath)
+        return jsonify({"medicines": medicines, "lines": lines, "raw_text": raw_text, "filename": file.filename})
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
     finally:
@@ -258,6 +280,8 @@ def rank():
                 "query": address,
                 "resolved_label": location["resolved_label"],
                 "used_default": location["used_default"],
+                "lat": user_lat,
+                "lng": user_lng,
             },
         }
     )

@@ -90,4 +90,24 @@
     </div>
   </article>
 </section>
+
+<div class="map-overlay" id="map-overlay">
+  <div class="map-panel">
+    <div class="map-panel-head">
+      <div class="map-panel-info">
+        <h3 id="map-pharmacy-title">Pharmacy</h3>
+        <p id="map-pharmacy-addr" class="helper-text"></p>
+        <p id="map-pharmacy-meta" class="helper-text"></p>
+      </div>
+      <button class="map-close-btn" id="map-close-btn">&#x2715; Close</button>
+    </div>
+    <div id="pharmacy-map"></div>
+    <div class="map-actions">
+      <a id="map-gmaps-link" href="#" target="_blank" rel="noopener" class="primary-link primary-button">
+        Open turn-by-turn in Google Maps
+      </a>
+      <span class="helper-text" id="map-distance-info"></span>
+    </div>
+  </div>
+</div>
 {% endblock %}

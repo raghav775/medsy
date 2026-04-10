@@ -8,6 +8,7 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+  <link rel="stylesheet" href="{{ url_for('static', filename='leaflet/leaflet.css') }}">
 </head>
 <body class="{{ page_class }}">
 
@@ -24,8 +25,9 @@
 
       <div class="header-actions">
         <span class="session-pill" id="auth-pill">Guest mode</span>
-        <a class="header-link {% if active_page == 'login' %}active{% endif %}" href="{{ url_for('login') }}">Login</a>
-        <a class="header-link {% if active_page == 'register' %}active{% endif %}" href="{{ url_for('register') }}">Register</a>
+        <a class="header-link hidden" id="dashboard-nav-link" href="{{ url_for('dashboard') }}">Dashboard</a>
+        <a class="header-link {% if active_page == 'login' %}active{% endif %}" id="login-nav-link" href="{{ url_for('login') }}">Login</a>
+        <a class="header-link {% if active_page == 'register' %}active{% endif %}" id="register-nav-link" href="{{ url_for('register') }}">Register</a>
         <a class="primary-link" href="{{ url_for('pharmacy_finder') }}">Start Search</a>
       </div>
     </div>
@@ -35,6 +37,12 @@
     {% block content %}{% endblock %}
   </main>
 
+  <script src="{{ url_for('static', filename='leaflet/leaflet.js') }}"></script>
   <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+  <script>
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/static/js/tile-sw.js', { scope: '/' });
+    }
+  </script>
 </body>
 </html>
