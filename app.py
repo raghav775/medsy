@@ -4,6 +4,7 @@ import re
 from flask import Flask, jsonify, render_template, request
 from flask_cors import CORS
 from werkzeug.utils import secure_filename
+import requests
 
 from engine.ocr import extract_medicines_from_file, parse_medicines_from_text
 from engine.probability import rank_pharmacies
@@ -181,28 +182,29 @@ def parse_manual_medicines():
     if not medicines:
         return jsonify({"error": "No medicines could be parsed from that text."}), 400
 
-    known_meds = set()
-    from engine.probability import PHARMACIES
-    for ph in PHARMACIES:
-        known_meds.update(ph.get("inventory", {}).keys())
-
     invalid_meds = []
     valid_meds = []
 
     for med in medicines:
         name_lower = med["name"].lower().strip()
-        is_known = False
-        for k in known_meds:
-            if name_lower in k or k in name_lower:
-                is_known = True
-                break
-        if is_known:
+        
+        # OpenFDA Real-World Validation
+        try:
+            import urllib.parse
+            encoded_name = urllib.parse.quote(name_lower)
+            # Query the US Government OpenFDA database
+            response = requests.get(f'https://api.fda.gov/drug/label.json?search={encoded_name}&limit=1', timeout=3)
+            if response.status_code == 200:
+                valid_meds.append(med)
+            else:
+                invalid_meds.append(med["name"])
+        except Exception as e:
+            # If the API fails or times out unexpectedly, we cautiously allow the drug
+            # to not block the user entirely during an outage
             valid_meds.append(med)
-        else:
-            invalid_meds.append(med["name"])
 
     if invalid_meds:
-        return jsonify({"error": f"Outright medicine not found: {', '.join(invalid_meds)}. Fake results are not allowed."}), 400
+        return jsonify({"error": f"Outright medicine not found in global database: {', '.join(invalid_meds)}. Fake results are not allowed."}), 400
 
     return jsonify({"medicines": valid_meds})
 
