@@ -1,0 +1,11 @@
+flask>=3.0.0
+flask-cors>=4.0.0
+# OCR for images
+pytesseract>=0.3.10
+pillow>=10.0.0
+# PDF text extraction
+pdfplumber>=0.10.0
+# Scanned PDF OCR
+pdf2image>=1.17.0
+# DOCX reading
+python-docx>=1.1.0

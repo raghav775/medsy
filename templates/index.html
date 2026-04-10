@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
+<title>MEDSY</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<link rel="stylesheet" href="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://unpkg.com/leaflet-routing-machine@3.2.12/dist/leaflet-routing-machine.js"></script>
+<link rel="stylesheet" href="/static/css/style.css"/>
+</head>
+<body>
+
+<!-- ── SIDEBAR ── -->
+<nav id="sidebar">
+  <div class="logo-wrap">
+    <div class="logo">
+      <div class="logo-icon">
+        <svg viewBox="0 0 20 20"><path d="M10 2a8 8 0 100 16A8 8 0 0010 2zm0 2a6 6 0 110 12A6 6 0 0110 4zm-.5 2v4.25H6.75v1.5H9.5V14h1v-2.25h2.75v-1.5H10.5V6h-1z"/></svg>
+      </div>
+      <div>
+        <div class="logo-name">MEDSY</div>
+        <div class="logo-sub">Smart medicine navigator</div>
+      </div>
+    </div>
+  </div>
+
+  <div class="nav-group">
+    <div class="nav-lbl">Main</div>
+    <div class="nav-item active" data-page="dashboard">
+      <svg viewBox="0 0 16 16" fill="currentColor"><rect x="1" y="1" width="6" height="6" rx="1.5"/><rect x="9" y="1" width="6" height="6" rx="1.5"/><rect x="1" y="9" width="6" height="6" rx="1.5"/><rect x="9" y="9" width="6" height="6" rx="1.5"/></svg>
+      Dashboard
+    </div>
+    <div class="nav-item" data-page="vault">
+      <svg viewBox="0 0 16 16" fill="currentColor"><path d="M13 2H3a1 1 0 00-1 1v10a1 1 0 001 1h10a1 1 0 001-1V3a1 1 0 00-1-1zM8 5a1.5 1.5 0 110 3A1.5 1.5 0 018 5zm-3 6c0-1.657 1.343-2 3-2s3 .343 3 2H5z"/></svg>
+      Medical vault
+    </div>
+    <div class="nav-item" data-page="prescription">
+      <svg viewBox="0 0 16 16" fill="currentColor"><path d="M4 1h8a1 1 0 011 1v12a1 1 0 01-1 1H4a1 1 0 01-1-1V2a1 1 0 011-1zm1 3v1.5h6V4H5zm0 3v1.5h6V7H5zm0 3v1.5h4V10H5z"/></svg>
+      Prescription finder
+    </div>
+    <div class="nav-item" data-page="navigate">
+      <svg viewBox="0 0 16 16" fill="currentColor"><path d="M8 1a5 5 0 00-5 5c0 3.5 5 9 5 9s5-5.5 5-9a5 5 0 00-5-5zm0 6.5a1.5 1.5 0 110-3 1.5 1.5 0 010 3z"/></svg>
+      Navigate
+    </div>
+  </div>
+
+  <div class="sidebar-footer">
+    <div class="user-chip">
+      <div class="user-av">AR</div>
+      <div>
+        <div class="user-name">Aryan</div>
+        <div class="user-loc">New Delhi, IN</div>
+      </div>
+    </div>
+  </div>
+</nav>
+
+<!-- ── MAIN ── -->
+<main id="main">
+
+  <!-- ══ DASHBOARD ══ -->
+  <section class="page active" id="page-dashboard">
+    <div class="topbar">
+      <div>
+        <div class="topbar-title">Good morning 👋</div>
+        <div class="topbar-sub">Your health snapshot</div>
+      </div>
+      <button class="btn btn-green btn-sm" onclick="goPage('prescription')">New prescription ↗</button>
+    </div>
+    <div class="page-body">
+      <div class="stats-row">
+        <div class="stat-card"><div class="stat-label">Records stored</div><div class="stat-value">14</div><div class="stat-hint">+2 this month</div></div>
+        <div class="stat-card"><div class="stat-label">Prescriptions scanned</div><div class="stat-value">6</div><div class="stat-hint">Last: 3 days ago</div></div>
+        <div class="stat-card"><div class="stat-label">Pharmacies found</div><div class="stat-value">23</div><div class="stat-hint">Within 5 km</div></div>
+        <div class="stat-card"><div class="stat-label">Avg. probability score</div><div class="stat-value">87%</div><div class="stat-hint">↑ 4% vs last week</div></div>
+      </div>
+      <div class="two-col">
+        <div class="card">
+          <div class="card-title">Recent activity</div>
+          <div class="activity-row"><span class="dot" style="background:#1D9E75"></span><span style="flex:1">Prescription #6 scanned — 4 medicines</span><span class="t3 f11">2h ago</span></div>
+          <div class="activity-row"><span class="dot" style="background:#378ADD"></span><span style="flex:1">MRI scan uploaded to vault</span><span class="t3 f11">1d ago</span></div>
+          <div class="activity-row"><span class="dot" style="background:#EF9F27"></span><span style="flex:1">Blood report — Apollo Diagnostics</span><span class="t3 f11">3d ago</span></div>
+          <div class="activity-row"><span class="dot" style="background:#1D9E75"></span><span style="flex:1">Navigated to MedPlus Lajpat Nagar</span><span class="t3 f11">5d ago</span></div>
+        </div>
+        <div class="card">
+          <div class="card-title">Top pharmacies near you</div>
+          <div class="pharm-row"><div><div class="fw6">MedPlus — Lajpat Nagar</div><div class="t3 f11">0.8 km</div></div><div class="pbar-wrap"><div class="pbar" style="width:94%"></div></div><span class="f11 fw6" style="color:#1D9E75">94%</span></div>
+          <div class="pharm-row"><div><div class="fw6">Apollo Pharmacy — GK1</div><div class="t3 f11">1.4 km</div></div><div class="pbar-wrap"><div class="pbar" style="width:88%"></div></div><span class="f11 fw6" style="color:#1D9E75">88%</span></div>
+          <div class="pharm-row"><div><div class="fw6">1mg Store — Saket</div><div class="t3 f11">2.1 km</div></div><div class="pbar-wrap"><div class="pbar" style="width:81%"></div></div><span class="f11 fw6" style="color:#1D9E75">81%</span></div>
+          <div class="pharm-row"><div><div class="fw6">Jan Aushadhi — Nehru Place</div><div class="t3 f11">3.3 km</div></div><div class="pbar-wrap"><div class="pbar" style="width:75%"></div></div><span class="f11 fw6" style="color:#1D9E75">75%</span></div>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ MEDICAL VAULT ══ -->
+  <section class="page" id="page-vault">
+    <div class="topbar">
+      <div>
+        <div class="topbar-title">Medical vault</div>
+        <div class="topbar-sub">14 records · Stored locally on your device</div>
+      </div>
+      <button class="btn btn-green btn-sm" onclick="document.getElementById('vault-upload').click()">+ Upload record</button>
+      <input type="file" id="vault-upload" accept=".pdf,.png,.jpg,.jpeg,.docx,.doc,.txt" style="display:none" multiple onchange="handleVaultUpload(this)"/>
+    </div>
+    <div class="page-body">
+      <div class="drop-zone" id="vault-drop"
+           ondragover="event.preventDefault();this.classList.add('drag-over')"
+           ondragleave="this.classList.remove('drag-over')"
+           ondrop="handleVaultDrop(event)"
+           onclick="document.getElementById('vault-upload').click()">
+        <div class="drop-zone-icon">📎</div>
+        <div class="drop-zone-title">Drop files or click to upload</div>
+        <div class="drop-zone-sub">PDF · JPG · PNG · DOCX · DOC · TXT &nbsp;—&nbsp; up to 20 MB</div>
+      </div>
+      <div class="vault-tabs">
+        <div class="vtab active" onclick="filterVault(this,'all')">All records</div>
+        <div class="vtab" onclick="filterVault(this,'scan')">Scans</div>
+        <div class="vtab" onclick="filterVault(this,'report')">Lab reports</div>
+        <div class="vtab" onclick="filterVault(this,'rx')">Prescriptions</div>
+      </div>
+      <div class="records-grid" id="records-grid">
+        <!-- Populated by JS from localStorage -->
+      </div>
+    </div>
+  </section>
+
+  <!-- ══ PRESCRIPTION FINDER ══ -->
+  <section class="page" id="page-prescription">
+    <div class="topbar">
+      <div>
+        <div class="topbar-title">Prescription finder</div>
+        <div class="topbar-sub">Upload → select medicines → find pharmacy</div>
+      </div>
+      <button class="btn btn-green btn-sm" id="run-btn" onclick="runEngine()" disabled>Run probability engine ↗</button>
+    </div>
+    <div class="page-body rx-layout">
+
+      <!-- LEFT: upload + medicine list -->
+      <div class="rx-left">
+        <div class="drop-zone" id="rx-drop"
+             ondragover="event.preventDefault();this.classList.add('drag-over')"
+             ondragleave="this.classList.remove('drag-over')"
+             ondrop="handleRxDrop(event)"
+             onclick="document.getElementById('rx-file').click()">
+          <div class="drop-zone-icon">📄</div>
+          <div class="drop-zone-title">Upload prescription</div>
+          <div class="drop-zone-sub">PDF · JPG · PNG · DOCX · DOC · TXT</div>
+        </div>
+        <input type="file" id="rx-file" accept=".pdf,.png,.jpg,.jpeg,.docx,.doc,.txt" style="display:none" onchange="uploadPrescription(this.files[0])"/>
+
+        <div id="rx-preview" style="display:none">
+          <div class="rx-header">
+            <div>
+              <div class="fw6" id="rx-filename">Prescription</div>
+              <div class="t3 f11" id="rx-meta"></div>
+            </div>
+            <span class="badge b-report" id="rx-status">AI scanned ✓</span>
+          </div>
+          <div class="f12 t2 mb8">Select the medicines you need:</div>
+          <div id="med-list"></div>
+        </div>
+
+        <div id="rx-loading" style="display:none;text-align:center;padding:24px;color:#999">
+          <div class="spinner"></div>
+          <div style="margin-top:8px;font-size:13px">Scanning prescription…</div>
+        </div>
+      </div>
+
+      <!-- RIGHT: results -->
+      <div class="rx-right">
+        <div class="results-panel">
+          <div class="engine-bar" id="engine-bar">
+            <span class="engine-dot"></span>
+            <span id="engine-msg">Upload a prescription to get started</span>
+          </div>
+          <div id="rx-results">
+            <div class="empty-state">
+              <div style="font-size:32px;margin-bottom:8px">💊</div>
+              <div>Ranked pharmacies will appear here</div>
+              <div class="f11 t3" style="margin-top:4px">Based on medicine availability + distance</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ══ NAVIGATE ══ -->
+  <section class="page" id="page-navigate">
+    <div class="topbar">
+      <div>
+        <div class="topbar-title">Navigate</div>
+        <div class="topbar-sub" id="nav-sub">Select a pharmacy to get directions</div>
+      </div>
+      <div style="display:flex;gap:8px">
+        <button class="btn btn-sm" onclick="locateMe()">📍 My location</button>
+        <button class="btn btn-green btn-sm" id="open-osm-btn" style="display:none" onclick="openInOSM()">Open in OSM ↗</button>
+      </div>
+    </div>
+    <div class="nav-layout">
+      <!-- Sidebar: pharmacy list + route steps -->
+      <div class="nav-sidebar">
+        <div class="card mb10" id="nav-pharm-list">
+          <div class="card-title">Choose pharmacy</div>
+          <div id="nav-options">
+            <div class="t3 f12">Run the probability engine first to see ranked pharmacies here.</div>
+          </div>
+        </div>
+        <div class="card" id="route-card" style="display:none">
+          <div class="card-title" id="route-title">Route</div>
+          <div class="route-stats">
+            <div class="route-stat"><div class="stat-val" id="r-dist">—</div><div class="stat-lbl">Distance</div></div>
+            <div class="route-stat"><div class="stat-val" id="r-eta">—</div><div class="stat-lbl">Walk ETA</div></div>
+          </div>
+          <div id="route-steps"></div>
+        </div>
+      </div>
+      <!-- Map -->
+      <div class="map-wrap">
+        <div id="map"></div>
+        <div class="map-attrib">Map © <a href="https://openstreetmap.org" target="_blank">OpenStreetMap</a> contributors — 100% free</div>
+      </div>
+    </div>
+  </section>
+
+</main>
+
+<script src="/static/js/vault.js"></script>
+<script src="/static/js/app.js"></script>
+</body>
+</html>
