@@ -458,6 +458,9 @@ async function parseManualMedicines(text, statusBanner, medicineList, resultsLis
   try {
     const res  = await fetch("/api/medicines", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text: cleaned }) });
     const data = await res.json();
+    if (data.security_blocked) {
+      throw new Error(data.error || "Safe search blocked that request.");
+    }
     if (!res.ok || data.error) throw new Error(data.error || "Could not parse medicines.");
     const medicines = normaliseMedicines(data.medicines, "Manual entry");
     if (!medicines.length) throw new Error("No medicines found.");
