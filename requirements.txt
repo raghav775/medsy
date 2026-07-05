@@ -1,6 +1,7 @@
 flask>=3.0.0
 flask-cors>=4.0.0
 python-dotenv>=1.0.0
+gunicorn>=21.2.0
 # OCR for images
 pytesseract>=0.3.10
 pillow>=10.0.0

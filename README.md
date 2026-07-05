@@ -68,6 +68,17 @@ http://127.0.0.1:5000
 - Stored locally in browser storage for now
 - Ready to replace with real authentication later
 
+## Deploy to Render
+
+This repo includes a `Dockerfile` and `render.yaml` so Tesseract/Poppler install correctly and the app runs behind `gunicorn`.
+
+1. Push this branch to GitHub (`origin` already points at `raghav775/medsy`).
+2. In the [Render dashboard](https://dashboard.render.com), choose **New > Blueprint** and select this repo. Render will read `render.yaml` and provision a Docker web service.
+3. Render auto-generates `FLASK_SECRET_KEY`. Fill in `ARMORIQ_API_KEY` and `GEMINI_API_KEY` under the service's **Environment** tab (they're marked `sync: false` so they aren't stored in the repo).
+4. Deploy. Render builds the Docker image (installing `tesseract-ocr` + `poppler-utils`) and starts `gunicorn` bound to Render's `$PORT`.
+
+Without the Blueprint, you can instead create the service manually: **New > Web Service**, runtime **Docker**, and set the same three env vars.
+
 ## Main files changed
 
 - `app.py`

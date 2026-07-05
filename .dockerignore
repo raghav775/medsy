@@ -3,7 +3,8 @@ __pycache__/
 *.pyc
 .env
 node_modules/
+.git/
+*.docx
+medsy ewe.zip
 static/uploads/*
-!static/uploads/.gitkeep
 static/pharmacy_cache/*
-!static/pharmacy_cache/.gitkeep

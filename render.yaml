@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: medsy
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    envVars:
+      - key: FLASK_SECRET_KEY
+        generateValue: true
+      - key: FLASK_DEBUG
+        value: "false"
+      - key: ARMORIQ_API_KEY
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
