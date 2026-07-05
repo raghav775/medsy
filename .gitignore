@@ -9,3 +9,6 @@ static/uploads/*
 !static/uploads/.gitkeep
 static/pharmacy_cache/*
 !static/pharmacy_cache/.gitkeep
+/1.docx
+/2.docx
+/medsy ewe.zip
