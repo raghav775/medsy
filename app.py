@@ -1,5 +1,6 @@
 import os
 import re
+import logging
 
 from dotenv import load_dotenv
 load_dotenv()
@@ -12,11 +13,14 @@ import requests
 from engine.ocr import extract_medicines_from_file, parse_medicines_from_text
 from engine.probability import rank_pharmacies
 from engine.overpass import fetch_pharmacies
+from engine.armoriq_guard import guard_route_action
 
 
 app = Flask(__name__)
 app.secret_key = os.environ.get("FLASK_SECRET_KEY", "dev-secret-change-in-production")
 CORS(app)
+
+logger = logging.getLogger("medsy.security")
 
 app.config["UPLOAD_FOLDER"] = os.path.join(app.root_path, "static", "uploads")
 app.config["MAX_CONTENT_LENGTH"] = 20 * 1024 * 1024
@@ -60,6 +64,29 @@ def render_page(template_name, active_page, **context):
         page_class=f"page-{active_page}",
         **context,
     )
+
+
+def _guard_or_block(action_name, payload):
+    result = guard_route_action(action_name, payload)
+
+    if result.error_code:
+        logger.warning(
+            "guard_decision action=%s allowed=%s code=%s reason=%s",
+            action_name,
+            result.allowed,
+            result.error_code,
+            result.reason,
+        )
+
+    if not result.allowed:
+        return jsonify(
+            {
+                "error": result.reason,
+                "error_code": result.error_code,
+                "security_blocked": True,
+            }
+        ), result.status_code
+    return None
 
 
 def medicines_from_text(text):
@@ -202,6 +229,17 @@ def parse_manual_medicines():
     data = request.get_json(silent=True) or {}
     text = (data.get("text") or "").strip()
 
+    guard_block = _guard_or_block(
+        "validate_manual_medicines_request",
+        {
+            "has_text": bool(text),
+            "text_length": len(text),
+            "text": text,
+        },
+    )
+    if guard_block:
+        return guard_block
+
     if not text:
         return jsonify({"error": "Enter at least one medicine name."}), 400
 
@@ -231,7 +269,15 @@ def parse_manual_medicines():
             valid_meds.append(med)
 
     if invalid_meds:
-        return jsonify({"error": f"Outright medicine not found in global database: {', '.join(invalid_meds)}. Fake results are not allowed."}), 400
+        guard_block = _guard_or_block(
+            "validate_manual_invalid_medicines",
+            {
+                "invalid_count": len(invalid_meds),
+                "invalid_preview": ", ".join(invalid_meds[:5]),
+            },
+        )
+        if guard_block:
+            return guard_block
 
     return jsonify({"medicines": valid_meds})
 
@@ -245,6 +291,17 @@ def ocr_pharmacy_finder():
     if not file.filename:
         return jsonify({"error": "Choose a file to upload."}), 400
 
+    guard_block = _guard_or_block(
+        "validate_ocr_upload_request",
+        {
+            "filename": file.filename,
+            "content_type": file.content_type,
+            "content_length": request.content_length,
+        },
+    )
+    if guard_block:
+        return guard_block
+
     if not allowed_file(file.filename):
         return jsonify({"error": "Unsupported file type."}), 400
 
@@ -254,6 +311,18 @@ def ocr_pharmacy_finder():
 
     try:
         medicines, raw_text = extract_medicines_from_file(filepath)
+
+        guard_block = _guard_or_block(
+            "validate_ocr_extracted_text",
+            {
+                "raw_text": raw_text,
+                "text_length": len(raw_text or ""),
+                "medicines_count": len(medicines or []),
+            },
+        )
+        if guard_block:
+            return guard_block
+
         return jsonify({"medicines": medicines, "raw_text": raw_text, "filename": file.filename})
     except Exception as exc:
         return jsonify({"error": str(exc)}), 500
@@ -269,6 +338,18 @@ def rank():
     address = (data.get("address") or "").strip()
     manual_lat = safe_float(data.get("lat"), None)
     manual_lng = safe_float(data.get("lng"), None)
+
+    guard_block = _guard_or_block(
+        "validate_rank_request",
+        {
+            "medicines_count": len(selected),
+            "address_length": len(address),
+            "has_lat": manual_lat is not None,
+            "has_lng": manual_lng is not None,
+        },
+    )
+    if guard_block:
+        return guard_block
 
     if not selected:
         return jsonify({"error": "No medicines selected."}), 400
